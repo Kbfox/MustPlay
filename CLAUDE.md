@@ -47,12 +47,13 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
    **09-25 深夜进度（用户填完电话/上传审核截图/上传 IAP .p8 后，助手继续）**：① RC 里 App Store app "MustPlay iOS"（appb33570c8a7）IAP key 已验证 "Valid credentials"；三个 App Store 商品 `mustplay_pro_yearly` / `mustplay_pro_monthly` / `mustplay_pro_lifetime` 已手建（Import 因未配 ASC API key 不可用，手建等价），已全部挂到 entitlement `pro`，offering `default` 三个 package 的 MustPlay iOS 槽位已各自选好并保存；② **`RC_API_KEY_RELEASE = appl_oMfJCdaFMLxuodasrnMpBVXpkZR` 已填**（公开 SDK key）；③ ASC App 信息 → App Store 服务器通知：生产 + 沙盒 URL 均已填 RC 的 webhook 地址；④ **Release 归档 + 上传成功**：`Config/ExportOptionsUpload.plist`（destination=upload）+ `-allowProvisioningUpdates`，走 Xcode 登录账号，无需 altool/API key。归档里 Info.plist 已确认 RC_API_KEY 为 appl_ 前缀。**构建 1.0.0 (1) 于 23:46 上传，ASC TestFlight 显示"正在处理"**；⑤ App Store 截图已截好在 `~/Desktop/mustplay-screenshots/`（`6.9inch-1320x2868/` 原图 5 张 + `6.5inch-1284x2778/` 缩放版；顺序：01 列表、02 What next、03 详情、04 分享卡片、05 付费墙）。**版本页当前只接受 6.5 英寸（1242×2688 / 1284×2778），用 6.5inch 目录那 5 张，用户手动上传**（内置浏览器无法选文件）；⑥ 版本页元数据已确认保存成功（描述 2,959 字、关键词、版权、联系人均在）。
    **接下来（按顺序）**：~~a. 选构建~~ 已完成（23:50 构建 1.0.0 (1) 已挂到版本 1.0 并保存，没有弹出口合规问卷）；b. 用户上传 5 张 6.5 英寸截图；c. 版本页上没有 IAP 区块，3 个 IAP 是在点"添加以供审核"后的审核提交清单里加进去（首个 IAP 必须随版本提交）；Lifetime 状态已是"准备提交"，两个订阅页面 ASC 当晚报错打不开，提交前再确认一次状态；d. 出口合规：Info.plist 已有 ITSAppUsesNonExemptEncryption=false，选构建时若弹问卷选"否"；e. DSA 交易商声明（用户本人）；f. 点"添加以供审核" → "提交以供审核"。
    **✅ 2026-09-26 00:16 已提交审核**（5 项：iOS App 1.0 构建 1.0.0 (1)、Lifetime、Yearly、Monthly、订阅群组 MustPlay Pro；版本状态"正在等待审核"）。提交前补的：用户填了银行账户（建设银行）、W-8BEN、国务院令 810，付费 App 协议已"有效"；DSA 声明已提交"正在审核"；App 信息"内容版权"选了"包含第三方内容并拥有必要权利"（IGDB 封面）；5 张 6.5 英寸截图已由用户上传、助手拖成 列表→What next→详情→分享→付费墙 顺序。经验：ASC 新版把 IAP 加进提交清单的入口在**每个 IAP / 订阅群组自己页面**右上角"添加以供审核 → iOS 提交草案"，订阅必须连同订阅群组一起加，否则草稿报"自动续期订阅必须随其订阅群组一起提交"。
+   **09-26 凌晨已做**：① `git init`（分支 main，首次提交 3abe6f3，49 个文件；`build/` 已加入 .gitignore，Secrets.xcconfig 未入库）；② 演示视频 `~/Desktop/mustplay-video/MustPlay-demo.mp4`（55 秒，884×1920，流程：列表滚动→搜索添加 Silksong→What next 抽签→Start playing→Mark as Completed 五星+一句话→通关动效→分享卡→点 Poster 弹付费墙并停 7 秒）。原始录像 `take2.mov`（simctl recordVideo，5.5 分钟含操作间隔），`_cfr.mp4` 是 30fps 中间文件；剪辑用 ffmpeg trim/concat 手工切段（simctl 录像是变帧率，mpdecimate/scene 自动去空闲不可靠，要按帧号抽样定位再切）。想重录：先 `xcrun simctl status_bar override --time 9:41` 把时钟固定，Settings→Debug 保持 Free，列表留 9 个以便演示添加。视频不用改可直接传 YouTube 填 Devpost。
    **接下来**：每天看 ASC 状态与邮件；被拒当天改完重提（改代码要把 project.yml 的 CURRENT_PROJECT_VERSION 改成 2 再归档上传）。通过后：促销代码（ASC → 促销代码）、Devpost 视频/截图/表单、OneSignal APNs + Push 节点、`git init`。
    **09-26 上午（原计划，已被上面替代）**：TestFlight 上传，沙盒账号真买一遍三个商品；截图（1179×2556，无边框）；App 隐私问卷；审核备注里写清 "Test Store 已换成 App Store"、IAP 随版本一并提交、附 Simulate Pro 不在 Release 里
    **09-26 下午**：Submit for Review（把 3 个 IAP 一起勾上）。之后每天查状态；被拒当天改完重提
    **09-27 起**：视频、Devpost 表单、兑换码（ASC → 促销代码，审核通过后才能生成）；OneSignal 补 Push 节点上线；`git init`
 5. 等审核期间：≤2 分钟演示视频（必须拍到付费墙）、1179×2556 无边框截图、兑换码、Devpost 表单
-6. `git init` + 首次提交（做 #BuildInPublic 前）
+6. ~~`git init` + 首次提交~~ 已完成（2026-09-26）
 
 ## 关键决策（不要重新讨论）
 - 数据源 **IGDB + Cloudflare Worker 代理**，不用 RAWG（RAWG 免费版仅限非商业，商用 $149/月）
@@ -66,7 +67,7 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
 - 项目由 XcodeGen 管理：改 `project.yml` 后重跑 `xcodegen generate`，不要手改 pbxproj
 - Swift 5 语言模式（`SWIFT_VERSION: "5"`），iOS 17+
 - key 一律经 xcconfig → Info.plist → `AppConfig`，代码里不写死；`Secrets.xcconfig` 已 gitignore
-- 目录尚未 `git init`；做 #BuildInPublic 前先初始化仓库。`docs/privacy.html` 与 `docs/terms.html` 已写好并推到 **github.com/Kbfox/mustplay-site**（2026-09-25，含 index.html 与 .nojekyll）。gh 的 PAT 没有 Pages 权限，需用户在 repo Settings → Pages → Source: Deploy from a branch → main / (root) 手动开启；开启后地址 `https://kbfox.github.io/mustplay-site/privacy.html` 和 `/terms.html`，要填进 ASC（隐私政策 URL）和 RC 付费墙（Terms / Privacy）。以后改文案：改 docs/ 后同步到那个仓库再 push
+- 已 `git init`（2026-09-26，本地仓库，尚无远程）。`docs/privacy.html` 与 `docs/terms.html` 已写好并推到 **github.com/Kbfox/mustplay-site**（2026-09-25，含 index.html 与 .nojekyll）。gh 的 PAT 没有 Pages 权限，需用户在 repo Settings → Pages → Source: Deploy from a branch → main / (root) 手动开启；开启后地址 `https://kbfox.github.io/mustplay-site/privacy.html` 和 `/terms.html`，要填进 ASC（隐私政策 URL）和 RC 付费墙（Terms / Privacy）。以后改文案：改 docs/ 后同步到那个仓库再 push
 - 结构：`App/`（入口、AppDelegate、AppConfig）→ `Models/BucketGame`（SwiftData）→ `Services/`（IGDBClient、PurchaseManager、NotificationManager、ImageLoader）→ `Views/`（RootView → BucketListView → GameDetailView → CompleteSheet / ShareCardSheet；SearchView、PaywallSheet、SettingsView）
 
 ## 环境提示：ECC GateGuard 钩子（用户已于 2026-09-15 关闭）
