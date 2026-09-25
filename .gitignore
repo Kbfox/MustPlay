@@ -1,0 +1,25 @@
+# Secrets — never commit
+Config/Secrets.xcconfig
+worker/.dev.vars
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.xcscmblueprint
+*.xccheckout
+.swiftpm/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Worker
+worker/node_modules/
+worker/.wrangler/
+
+# macOS
+.DS_Store
+
+# Build output
+build/

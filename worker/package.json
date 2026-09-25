@@ -1,0 +1,15 @@
+{
+  "name": "mustplay-igdb-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "login": "wrangler login",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secrets": "wrangler secret put TWITCH_CLIENT_ID && wrangler secret put TWITCH_CLIENT_SECRET",
+    "secret:appkey": "wrangler secret put APP_KEY"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

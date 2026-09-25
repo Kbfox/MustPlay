@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `npm run dev` (local only; .dev.vars is gitignored).
+# Production uses `wrangler secret put`, not this file.
+TWITCH_CLIENT_ID=your_twitch_client_id
+TWITCH_CLIENT_SECRET=your_twitch_client_secret
+APP_KEY=

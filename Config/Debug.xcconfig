@@ -1,0 +1,3 @@
+#include? "Secrets.xcconfig"
+
+RC_API_KEY = $(RC_API_KEY_DEBUG)

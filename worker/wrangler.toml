@@ -1,0 +1,9 @@
+name = "mustplay-igdb"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Secrets are NOT stored here. Set them with:
+#   npx wrangler secret put TWITCH_CLIENT_ID
+#   npx wrangler secret put TWITCH_CLIENT_SECRET
+#   npx wrangler secret put APP_KEY        (optional; must match IGDB_APP_KEY in the app)
