@@ -56,6 +56,7 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
    **09-30：加急第二次提交，Apple 页面直接确认 "We'll expedite review for MustPlay"**（09-29 那次两个邮箱都没收到任何回执，疑似未生效；这次表单提交后立即出确认页，且注明本次审核若被拒、重提后自动回到加急队列）。同日已建议用户给 Shipaton 主办方发宽限邮件（草稿在对话里）。
    **09-30 19:22 已给主办方发宽限邮件**（Gmail zengyx83 → shipaton@revenuecat.com，主题 "MustPlay (Shipaton 2026) - App submitted 9/25, stuck in Apple review queue, requesting grace"，附 ASC 提交页截图 + Apple 加急确认截图；附件文件在 `~/Desktop/shipaton-email/`）。主办方回复看 gmail。
    **10-01 00:37 主办方（Charlie Chapman, RevenueCat）回信拒绝宽限**："rules are quite strict that apps must be released in the store by the end of the deadline. We're not able to make exceptions."。唯一出路是 Apple 在北京时间 10-01 14:45 前通过并上架。若未赶上：Devpost 提交不撤；App 照常上架运营；上架后给 Charlie 回一封短信告知。
+   **⚠️ 10-01 11:06 发现截止时间有两个版本**：规则正文写 09-30 23:45 PDT，但 Devpost 活动页顶部和 Schedule 页显示 **Deadline: Oct 1, 2026 @ 12:00pm PDT（北京 10-02 03:00）**，Devpost 管理页也按这个倒计时（系统在此时关闭提交）。以 Devpost 显示为准继续等审核。Devpost 描述顶部加了一行 Status 说明（上架后删掉）。上架检测用公开接口 `curl -s "https://itunes.apple.com/lookup?id=6816116027"`（resultCount 0→1），会话内 cron 每小时查。
    **接下来**：每天看 ASC 状态与邮件；被拒当天改完重提（改代码要把 project.yml 的 CURRENT_PROJECT_VERSION 改成 2 再归档上传）。通过后：促销代码（ASC → 促销代码，可选）、Devpost 勾选 8/1–9/30 首发、确认 App Store 链接可访问。
    **09-26 上午（原计划，已被上面替代）**：TestFlight 上传，沙盒账号真买一遍三个商品；截图（1179×2556，无边框）；App 隐私问卷；审核备注里写清 "Test Store 已换成 App Store"、IAP 随版本一并提交、附 Simulate Pro 不在 Release 里
    **09-26 下午**：Submit for Review（把 3 个 IAP 一起勾上）。之后每天查状态；被拒当天改完重提
