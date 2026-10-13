@@ -10,6 +10,7 @@ struct BucketListView: View {
     @Query(sort: \BucketGame.sortOrder) private var allGames: [BucketGame]
 
     @State private var showWhatNext = false
+    @State private var showScout = false
 
     /// Games eligible for "What next?": the Want pile, released games only.
     private var wantPool: [BucketGame] {
@@ -37,6 +38,11 @@ struct BucketListView: View {
                 path.append(game)
             }
         }
+        .sheet(isPresented: $showScout) {
+            ScoutView { game in
+                path.append(game)
+            }
+        }
     }
 
     private var list: some View {
@@ -45,6 +51,11 @@ struct BucketListView: View {
                 whatNextCard
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+            }
+            if filter == nil || filter == .wantToPlay {
+                scoutCard
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
             ForEach(games) { game in
                 NavigationLink(value: game) {
@@ -71,6 +82,37 @@ struct BucketListView: View {
                     Text("What next?")
                         .font(.headline)
                     Text("\(wantPool.count) waiting. Let one pick you.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var scoutCard: some View {
+        Button {
+            showScout = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        LinearGradient(colors: [.purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ask Scout")
+                        .font(.headline)
+                    Text("Picks by taste, powered by Qloo.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

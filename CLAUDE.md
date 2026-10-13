@@ -92,3 +92,5 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
 - 评分四项等权：Qloo 用得深不深 / 产品完整度 / 真实问题的影响力 / 创意非显而易见。原话："If your submission would work the same without Qloo, you're building the wrong thing."
 - 支持的 filter.type 含 `urn:entity:video_game`，所以 MustPlay 方向可行。
 - **决定（10-12）：在 MustPlay 上加 agent 功能 "Scout"，作为 1.1 发布。产品定义与排期见 `docs/qloo-hackathon-plan.md`**（10-28 提交；10-29 起再做 PayPal 的 Errand）。
+- **10-12 晚进度（第一阶段检查点已过）**：Worker 已转 TypeScript 并部署（`worker/src/`：`index.ts` 路由、`igdb.ts` 代理+内部查询、`llm.ts` Workers AI 适配、`qloo.ts` 四个端点、`fixture.ts` 无 key 时的样例图谱、`agent.ts` 工具循环）；`POST /agent` 走 SSE。iOS：`Services/ScoutClient.swift`、`Views/ScoutView.swift`、列表顶部 "Ask Scout" 卡片、`BucketGame.qlooEntityID`。模拟器实测 Pick / Taste 两个场景渲染正常，四种意图 curl 级全部通过（fixture 数据）。Qloo key 到手后：`cd worker && npx wrangler secret put QLOO_API_KEY`，然后按 `docs/qloo-api-notes.md` 核对 `/search` 响应形状与 `urn:entity:video_game` vs `urn:entity:videogame`（文档两处写法不一致，`qloo.ts` 两种都认）。本地调试：`npx wrangler dev --port 8788`（8787 被 Errand 占用），请求样例在会话 scratchpad `req-*.json`。
+- 模拟器工具坐标：截图按 921×2000 显示时，tap 坐标 = 截图像素 × 0.478（设备 440×956 pt）。

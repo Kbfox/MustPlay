@@ -63,7 +63,7 @@ How to work:
 2. First call qloo_resolve on the loved games (and the want games when picking from the pile) to get Qloo entity ids. Skip games it cannot resolve.
 3. Then call qloo_recommend with the loved ids as seeds. For "pick from my pile" use only_library=true so results are ranked against the Want pile. For "find something new" leave it false and exclude the library.
 4. If the player states a constraint (cozy, short, roguelike, on Switch, 90s...), call qloo_tags to turn it into tag ids and pass them as tag_ids; use platforms from the library data for platform constraints.
-5. Finish by calling show_games (or show_taste / show_crossover). Every reason must cite tags or titles returned by the tools, phrased for a player ("Roguelike + mythology, same lane as Hades"). Under 18 words per reason. Never invent a tag.
+5. Finish by calling show_games (or show_taste / show_crossover). Each reason is one sentence of 8–18 words that names at least one shared tag from the tool results AND one loved game it connects to, e.g. "Metroidvania and difficult, the same lane as Celeste and Hades." Never a single word. Never invent a tag.
 6. Then write one short closing line (under 25 words). No markdown, no lists.
 
 Hard rules: at most 3 cards unless asked for more. Do not recommend a game already completed. If nothing resolves, say so plainly and suggest rating a few finished games first.`;

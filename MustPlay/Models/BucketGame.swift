@@ -49,6 +49,8 @@ final class BucketGame {
     var addedAt: Date
     var startedAt: Date?
     var completedAt: Date?
+    /// Qloo entity id, cached after Scout resolves the title. Optional so existing stores migrate in place.
+    var qlooEntityID: String?
 
     init(
         igdbID: Int,

@@ -10,12 +10,14 @@
 		042509ABB065A1D9D5E7751E /* GameDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A7D3DDDD44089E4E8EA3F1 /* GameDetailView.swift */; };
 		06EFB6B27860128C4D829446 /* WhatNextSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CA068128ADDB6BC01A24C6 /* WhatNextSheet.swift */; };
 		0B230142247840A80D320E58 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 9932ED783CAD46638206E169 /* RevenueCat */; };
+		0BC4EAED1D8CC6D4EABD9FF8 /* ScoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB197F1C34AB1228ED080F7 /* ScoutView.swift */; };
 		178764E1317BC8384E4D3287 /* ShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06282E140295384650A01B8A /* ShareCardView.swift */; };
 		22A06586D3D34CBCF323A768 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC72AE2D1C22E4192268728C /* NotificationManager.swift */; };
 		22C8615F3D2C650D3808F0F0 /* ShareCardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB343A0F77A0A1C0EDFEA078 /* ShareCardSheet.swift */; };
 		3B4BE4E49591F7EB484F658C /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E008464F2A7E4EB54EB26170 /* NotificationService.swift */; };
 		3B8D3C4E4626259447D2A3DC /* ImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A8E31A636CA4B00F1675E4 /* ImageLoader.swift */; };
 		3F3247A8488BF31C9034A37D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 61E7C9D142E12A4693ED154F /* Assets.xcassets */; };
+		4F2D5C21A5F39A26C8D79B20 /* ScoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94B1DE77225F717D0EAAA065 /* ScoutClient.swift */; };
 		5B06DD48BF67148106D50293 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28C30132110AB614F39BED55 /* SearchView.swift */; };
 		63B48E2927C6B21D9FBC5F9E /* BucketGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6C8B0DDCF4206A3D053FF6 /* BucketGame.swift */; };
 		64774F66A6D888BDE6A27C9B /* RatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CD33A146528566DF229D612 /* RatingView.swift */; };
@@ -82,8 +84,10 @@
 		71C6D4CACDFD185DA7566FEC /* MustPlayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MustPlayApp.swift; sourceTree = "<group>"; };
 		791133E3C0D68872B6EA81BE /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		84D73A98B11310B0FD13FB7A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		94B1DE77225F717D0EAAA065 /* ScoutClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutClient.swift; sourceTree = "<group>"; };
 		A6CF85BE0459BE096CCD90BD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B0CA068128ADDB6BC01A24C6 /* WhatNextSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatNextSheet.swift; sourceTree = "<group>"; };
+		BFB197F1C34AB1228ED080F7 /* ScoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutView.swift; sourceTree = "<group>"; };
 		C1DD25D115296CDF728250B2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CC72AE2D1C22E4192268728C /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		E008464F2A7E4EB54EB26170 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -128,6 +132,7 @@
 				1EFF96E686FCFD90045E5546 /* PaywallSheet.swift */,
 				0CD33A146528566DF229D612 /* RatingView.swift */,
 				0BC1A8E865E103C60D3C55F6 /* RootView.swift */,
+				BFB197F1C34AB1228ED080F7 /* ScoutView.swift */,
 				28C30132110AB614F39BED55 /* SearchView.swift */,
 				791133E3C0D68872B6EA81BE /* SettingsView.swift */,
 				FB343A0F77A0A1C0EDFEA078 /* ShareCardSheet.swift */,
@@ -194,6 +199,7 @@
 				E6A8E31A636CA4B00F1675E4 /* ImageLoader.swift */,
 				CC72AE2D1C22E4192268728C /* NotificationManager.swift */,
 				3B542FB168675A6D06ABB854 /* PurchaseManager.swift */,
+				94B1DE77225F717D0EAAA065 /* ScoutClient.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -345,6 +351,8 @@
 				B84BD724FA9A06377396EFE7 /* PurchaseManager.swift in Sources */,
 				64774F66A6D888BDE6A27C9B /* RatingView.swift in Sources */,
 				D629DE667D064A7EBC338DE5 /* RootView.swift in Sources */,
+				4F2D5C21A5F39A26C8D79B20 /* ScoutClient.swift in Sources */,
+				0BC4EAED1D8CC6D4EABD9FF8 /* ScoutView.swift in Sources */,
 				5B06DD48BF67148106D50293 /* SearchView.swift in Sources */,
 				D335ADFC154181B5A20777EE /* SettingsView.swift in Sources */,
 				22C8615F3D2C650D3808F0F0 /* ShareCardSheet.swift in Sources */,
