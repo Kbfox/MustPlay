@@ -204,6 +204,18 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
   const task = intentPrompt(req.intent, focus);
   if (task) messages.push({ role: "user", content: task });
 
+  // Cheap guards before spending a model call: the canned prompts need seeds to work from.
+  const loved = lib.filter((g) => (g.status === "completed" && (g.rating ?? 0) >= 4) || g.status === "playing");
+  const want = lib.filter((g) => g.status === "wantToPlay");
+  if (req.intent === "pick" && !want.length) {
+    await emit({ type: "message", text: "Your Want pile is empty. Add a few games you mean to play and I'll rank them against what you loved." });
+    return;
+  }
+  if ((req.intent === "pick" || req.intent === "taste" || req.intent === "discover") && !loved.length) {
+    await emit({ type: "message", text: "I don't know your taste yet. Mark a game as Playing, or rate a finished one 4 stars or more, then ask again." });
+    return;
+  }
+
   if (!qloo.hasKey(env)) await emit({ type: "status", text: "Qloo key not set — using the built-in sample taste graph" });
 
   let shown = false;
@@ -318,6 +330,10 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
                 tags: e?.tags.map((t) => t.name).slice(0, 4) ?? [],
               });
             }
+            if (!cards.length) {
+              result = { error: "no picks given; call show_games with names from the tool results" };
+              break;
+            }
             await emit({ type: "games", title: a.title, items: cards });
             shown = true;
             result = { shown: cards.map((c) => c.name) };
@@ -332,6 +348,10 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
           }
           case "show_crossover": {
             const picks = arr<{ type: qloo.EntityType; name: string; reason: string }>(a.picks).filter((p) => p && typeof p.name === "string").slice(0, 4);
+            if (!picks.length) {
+              result = { error: "no picks given" };
+              break;
+            }
             const items: CrossCard[] = picks.map((p) => {
               const e = seen.get(p.name.toLowerCase());
               return { type: p.type, name: e?.name ?? p.name, year: e?.year, reason: p.reason, tags: e?.tags.map((t) => t.name).slice(0, 4) ?? [] };

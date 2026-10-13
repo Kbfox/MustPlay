@@ -22,6 +22,11 @@ enum ScoutItem: Identifiable {
         case .error(let t): "e-\(t.hashValue)"
         }
     }
+
+    var isError: Bool {
+        if case .error = self { return true }
+        return false
+    }
 }
 
 /// The four things Scout is good at. Free text works too.
@@ -83,12 +88,32 @@ final class ScoutSession {
     /// Last few user/assistant turns, sent back so free-text follow-ups keep context.
     private var history: [ScoutRequest.Message] = []
     private var task: Task<Void, Never>?
+    private var lastAsk: (text: String, intent: ScoutIntent?, library: [BucketGame], focus: BucketGame?, onResolved: ([Int: String]) -> Void)?
+
+    /// Scout can retry the previous question after a failure.
+    var canRetry: Bool { lastAsk != nil && transcript.last?.isError == true }
+
+    /// A local note from the app itself (guidance that needs no network round-trip).
+    func note(_ text: String, replyingTo userText: String) {
+        transcript.append(.user(userText))
+        transcript.append(.assistant(text))
+    }
+
+    func retry() {
+        guard let last = lastAsk, !isRunning else { return }
+        // Drop the failed turn so the transcript doesn't repeat the question.
+        if transcript.last?.isError == true { transcript.removeLast() }
+        if case .user = transcript.last { transcript.removeLast() }
+        if history.last?.role == "user" { history.removeLast() }
+        ask(last.text, intent: last.intent, library: last.library, focus: last.focus, onResolved: last.onResolved)
+    }
 
     func ask(_ text: String, intent: ScoutIntent?, library: [BucketGame], focus: BucketGame?, onResolved: @escaping ([Int: String]) -> Void) {
         guard !isRunning else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        lastAsk = (trimmed, intent, library, focus, onResolved)
         transcript.append(.user(trimmed))
         history.append(.init(role: "user", content: trimmed))
         isRunning = true
@@ -110,7 +135,7 @@ final class ScoutSession {
                         replaceTrailingStatus(with: text)
                     case .games(let title, let items):
                         dropTrailingStatus()
-                        transcript.append(.games(title: title, items: items))
+                        if !items.isEmpty { transcript.append(.games(title: title, items: items)) }
                     case .taste(let summary, let tags):
                         dropTrailingStatus()
                         transcript.append(.taste(summary: summary, tags: tags))
@@ -125,7 +150,7 @@ final class ScoutSession {
                         replies.append(text)
                     case .error(let text):
                         dropTrailingStatus()
-                        transcript.append(.error(text))
+                        transcript.append(.error(Self.friendly(serverError: text)))
                     case .done:
                         dropTrailingStatus()
                     }
@@ -134,12 +159,38 @@ final class ScoutSession {
                 dropTrailingStatus()
             } catch {
                 dropTrailingStatus()
-                transcript.append(.error(error.localizedDescription))
+                transcript.append(.error(Self.friendly(error)))
             }
             if !replies.isEmpty {
                 history.append(.init(role: "assistant", content: replies.joined(separator: " ")))
             }
         }
+    }
+
+    private static func friendly(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "You're offline. Scout needs a connection to reach Qloo."
+            case .timedOut:
+                return "That took too long. Qloo or the model didn't answer in time."
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return "Can't reach Scout's server right now."
+            default:
+                break
+            }
+        }
+        if let scoutError = error as? ScoutClient.ScoutError {
+            return scoutError.localizedDescription
+        }
+        return "Something went wrong talking to Scout."
+    }
+
+    private static func friendly(serverError text: String) -> String {
+        let lower = text.lowercased()
+        if lower.contains("qloo") { return "Qloo's taste API didn't answer. It happens; try again in a moment." }
+        if lower.contains("llm") || lower.contains("ai") { return "The model behind Scout is busy. Try again in a moment." }
+        return "Scout hit a snag on the server. Try again in a moment."
     }
 
     func cancel() {
@@ -181,6 +232,10 @@ struct ScoutView: View {
 
     private var lovedCount: Int {
         games.filter { ($0.status == .completed && ($0.rating ?? 0) >= 4) || $0.status == .playing }.count
+    }
+
+    private var wantCount: Int {
+        games.filter { $0.status == .wantToPlay && !$0.isUpcoming }.count
     }
 
     private var lastCompleted: BucketGame? {
@@ -269,12 +324,44 @@ struct ScoutView: View {
                         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(prompt == .postcredits && lastCompleted == nil)
-                    .opacity(prompt == .postcredits && lastCompleted == nil ? 0.5 : 1)
+                    .disabled(!isAvailable(prompt))
+                    .opacity(isAvailable(prompt) ? 1 : 0.5)
                 }
+            }
+            if lovedCount == 0 {
+                Label("Scout learns your taste from games you rated 4 stars or more, or are playing now.", systemImage: "star")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if wantCount == 0 {
+                Label("Add games to your Want list and Scout can rank them for you.", systemImage: "bookmark")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.bottom, 8)
+    }
+
+    /// Canned prompts only make sense with something to work from; free text is always allowed.
+    private func isAvailable(_ prompt: ScoutPrompt) -> Bool {
+        switch prompt {
+        case .pick: lovedCount > 0 && wantCount > 0
+        case .discover, .taste: lovedCount > 0
+        case .postcredits: lastCompleted != nil
+        }
+    }
+
+    /// Client-side version of the Worker's guards, so the answer is instant and works offline.
+    private func guidance(for intent: ScoutIntent?) -> String? {
+        switch intent {
+        case .pick where wantCount == 0:
+            "Your Want pile is empty. Add a few games you mean to play and I'll rank them against what you loved."
+        case .pick, .taste, .discover:
+            lovedCount == 0 ? "I don't know your taste yet. Mark a game as Playing, or rate a finished one 4 stars or more, then ask again." : nil
+        case .postcredits where lastCompleted == nil:
+            "Finish a game first and I'll pair it with a film or an album."
+        default:
+            nil
+        }
     }
 
     // MARK: - Rows
@@ -321,9 +408,17 @@ struct ScoutView: View {
                 }
             }
         case .error(let text):
-            Label(text, systemImage: "exclamationmark.triangle")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label(text, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if session.canRetry {
+                    Button("Retry") { session.retry() }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                }
+            }
         }
     }
 
@@ -437,7 +532,7 @@ struct ScoutView: View {
                                     .background(Color(.secondarySystemBackground), in: Capsule())
                             }
                             .buttonStyle(.plain)
-                            .disabled(session.isRunning || (prompt == .postcredits && lastCompleted == nil))
+                            .disabled(session.isRunning || !isAvailable(prompt))
                         }
                     }
                     .padding(.horizontal)
@@ -470,6 +565,10 @@ struct ScoutView: View {
     private func send(_ text: String, intent: ScoutIntent?) {
         draft = ""
         inputFocused = false
+        if let guidance = guidance(for: intent) {
+            session.note(guidance, replyingTo: text)
+            return
+        }
         session.ask(text, intent: intent, library: games, focus: lastCompleted) { map in
             for game in games {
                 if let id = map[game.igdbID], game.qlooEntityID != id {
@@ -485,8 +584,17 @@ struct ScoutView: View {
             showPaywall = true
             return
         }
-        let hits = (try? await IGDBClient.shared.search(card.name, limit: 5)) ?? []
-        guard let hit = hits.first(where: { $0.id == card.igdb_id }) ?? hits.first else { return }
+        let hits: [IGDBGame]
+        do {
+            hits = try await IGDBClient.shared.search(card.name, limit: 5)
+        } catch {
+            session.transcript.append(.error("Couldn't reach the game database to add \(card.name). Try again in a moment."))
+            return
+        }
+        guard let hit = hits.first(where: { $0.id == card.igdb_id }) ?? hits.first else {
+            session.transcript.append(.error("Couldn't find \(card.name) in the game database."))
+            return
+        }
         guard !games.contains(where: { $0.igdbID == hit.id }) else {
             addedIDs.insert(hit.id)
             return

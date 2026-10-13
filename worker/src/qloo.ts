@@ -123,7 +123,7 @@ export async function recommend(env: Env, input: RecommendInput): Promise<QlooEn
   if (!hasKey(env)) return fixture.recommend(input);
   const data = await get(env, "/v2/insights", {
     "filter.type": ENTITY_URN[input.type],
-    "signal.interests.entities": input.seedIds.join(","),
+    "signal.interests.entities": input.seedIds.length ? input.seedIds.join(",") : undefined,
     "filter.tags": input.tagIds?.length ? input.tagIds.join(",") : undefined,
     "filter.release_year.min": input.minYear,
     "filter.release_year.max": input.maxYear,   // movies/TV only per the spec; ignored for games
