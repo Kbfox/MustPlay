@@ -12,6 +12,7 @@ struct GameDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var celebrating = false
     @State private var showWhatNext = false
+    @State private var showPostCredits = false
     @State private var whatNextPending = false
     @State private var nextGame: BucketGame?
 
@@ -108,10 +109,11 @@ struct GameDetailView: View {
             }
         }
         .sheet(isPresented: $showShareSheet, onDismiss: {
-            // Right after a fresh completion, close the loop: pick the next game.
+            // Right after a fresh completion, close the loop: Scout pairs the finish with a film or
+            // album, and its chips lead straight to picking the next game.
             if whatNextPending {
                 whatNextPending = false
-                if !wantPool.isEmpty { showWhatNext = true }
+                showPostCredits = true
             }
         }) {
             ShareCardSheet(game: game, milestone: game.milestone(in: allGames))
@@ -120,6 +122,9 @@ struct GameDetailView: View {
             WhatNextSheet(pool: wantPool) { picked in
                 nextGame = picked
             }
+        }
+        .sheet(isPresented: $showPostCredits) {
+            ScoutView(onStart: { picked in nextGame = picked }, autoPrompt: .postcredits)
         }
         .navigationDestination(item: $nextGame) { next in
             GameDetailView(game: next)

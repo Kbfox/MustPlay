@@ -164,6 +164,8 @@ final class ScoutSession {
 struct ScoutView: View {
     /// Called after "Start playing"; the caller navigates to the game.
     var onStart: (BucketGame) -> Void
+    /// Fires this prompt as soon as the sheet appears (post-credits after a completion).
+    var autoPrompt: ScoutPrompt? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -226,6 +228,11 @@ struct ScoutView: View {
         }
         .sensoryFeedback(.success, trigger: addCount)
         .onDisappear { session.cancel() }
+        .task {
+            if let autoPrompt, session.transcript.isEmpty {
+                send(autoPrompt.message, intent: autoPrompt.intent)
+            }
+        }
     }
 
     // MARK: - Intro
