@@ -91,3 +91,4 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
 - 硬要求：必须用 Qloo API（base URL `https://hackathon.api.qloo.com`，header `X-Api-Key`，只用 `/v2/insights` + `/search` + `/v2/tags`，不要用 `/recs`）；是 agent 工具或用 agent 框架；**不需要视频**，但要：① 公开可用的在线 demo（网页或 TestFlight 均可，本地跑不算）② 公开仓库 + 顶部 About 可见的开源 license ③ 文字描述。已有项目可参赛，但必须在 09-30 后接入 Qloo 并说明改动。
 - 评分四项等权：Qloo 用得深不深 / 产品完整度 / 真实问题的影响力 / 创意非显而易见。原话："If your submission would work the same without Qloo, you're building the wrong thing."
 - 支持的 filter.type 含 `urn:entity:video_game`，所以 MustPlay 方向可行。
+- **决定（10-12）：在 MustPlay 上加 agent 功能 "Scout"，作为 1.1 发布。产品定义与排期见 `docs/qloo-hackathon-plan.md`**（10-28 提交；10-29 起再做 PayPal 的 Errand）。
