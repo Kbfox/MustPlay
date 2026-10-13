@@ -231,6 +231,21 @@ struct ScoutView: View {
     @State private var showPaywall = false
     @State private var addedIDs: Set<Int> = []
     @State private var addCount = 0
+    @State private var tasteToShare: TasteShare?
+
+    private struct TasteShare: Identifiable {
+        let summary: String
+        let tags: [ScoutTasteTag]
+        var id: String { summary }
+    }
+
+    /// Covers for the taste poster: the highest-rated finished games, then whatever is being played.
+    private var lovedCoverURLs: [URL] {
+        let loved = games
+            .filter { ($0.status == .completed && ($0.rating ?? 0) >= 4) || $0.status == .playing }
+            .sorted { ($0.rating ?? 0, $0.completedAt ?? .distantPast) > ($1.rating ?? 0, $1.completedAt ?? .distantPast) }
+        return loved.compactMap(\.largeCoverURL)
+    }
     @FocusState private var inputFocused: Bool
 
     private var lovedCount: Int {
@@ -284,6 +299,9 @@ struct ScoutView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallSheet()
         }
+        .sheet(item: $tasteToShare) { share in
+            TasteShareSheet(summary: share.summary, tags: share.tags, coverURLs: lovedCoverURLs)
+        }
         .sensoryFeedback(.success, trigger: addCount)
         .onDisappear { session.cancel() }
         .task {
@@ -331,6 +349,9 @@ struct ScoutView: View {
                     .opacity(isAvailable(prompt) ? 1 : 0.5)
                 }
             }
+            Text("Taste data by Qloo · Game data by IGDB")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             if lovedCount == 0 {
                 Label("Scout learns your taste from games you rated 4 stars or more, or are playing now.", systemImage: "star")
                     .font(.footnote)
@@ -403,7 +424,9 @@ struct ScoutView: View {
                 }
             }
         case .taste(let summary, let tags):
-            TasteCard(summary: summary, tags: tags)
+            TasteCard(summary: summary, tags: tags) {
+                tasteToShare = TasteShare(summary: summary, tags: tags)
+            }
         case .crossover(let items):
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(items) { card in
@@ -632,6 +655,7 @@ struct ScoutView: View {
 struct TasteCard: View {
     let summary: String
     let tags: [ScoutTasteTag]
+    var onShare: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -643,9 +667,23 @@ struct TasteCard: View {
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
             FlowTags(tags: tags)
-            Text("Taste analysis by Qloo")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.7))
+            HStack {
+                Text("Taste analysis by Qloo")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+                Spacer()
+                if let onShare {
+                    Button(action: onShare) {
+                        Label("Share card", systemImage: "square.and.arrow.up")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.2), in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

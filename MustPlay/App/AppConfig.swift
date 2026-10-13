@@ -12,6 +12,7 @@ enum AppConfig {
     static let freeGameLimit = 10
 
     static let igdbAttributionURL = URL(string: "https://www.igdb.com")!
+    static let qlooAttributionURL = URL(string: "https://www.qloo.com")!
 
     private static func infoValue(_ key: String) -> String {
         let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? ""

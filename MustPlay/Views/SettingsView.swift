@@ -43,6 +43,9 @@ struct SettingsView: View {
                     Link(destination: AppConfig.igdbAttributionURL) {
                         LabeledContent("Game data", value: "IGDB")
                     }
+                    Link(destination: AppConfig.qlooAttributionURL) {
+                        LabeledContent("Scout taste data", value: "Qloo")
+                    }
                     LabeledContent("Version", value: appVersion)
                 }
 
