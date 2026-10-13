@@ -23,6 +23,14 @@ export default {
 
     if (path.startsWith("/v4/")) return igdb.handleProxy(request, env, ctx, path.slice("/v4/".length));
 
+    // Raw passthrough to Qloo for debugging response shapes (app-key protected, GET only).
+    if (path.startsWith("/qloo/") && request.method === "GET") {
+      if (!env.QLOO_API_KEY) return text(503, "QLOO_API_KEY not set");
+      const upstream = new URL(path.slice("/qloo".length) + url.search, env.QLOO_BASE_URL);
+      const res = await fetch(upstream, { headers: { "X-Api-Key": env.QLOO_API_KEY, Accept: "application/json" } });
+      return new Response(await res.text(), { status: res.status, headers: corsHeaders({ "Content-Type": "application/json" }) });
+    }
+
     if (path === "/agent" && request.method === "POST") {
       let body: agent.AgentRequest;
       try {
@@ -43,8 +51,11 @@ export default {
         try {
           await agent.run(env, body, ctx, emit);
         } catch (error) {
-          const detail = error instanceof HttpError ? `${error.message}: ${String(error.detail ?? "")}` : String(error);
-          await emit({ type: "error", text: detail.slice(0, 300) });
+          const raw = error instanceof HttpError ? `${error.message}: ${String(error.detail ?? "")}` : String(error);
+          // Stable, app-readable prefixes; the raw detail follows for curl users and logs.
+          const code = /4006|daily free allocation|neurons/i.test(raw) ? "llm_quota" : /^AiError|workers ai|llm /i.test(raw) ? "llm" : /qloo/i.test(raw) ? "qloo" : "server";
+          console.error("agent failed", raw.slice(0, 500));
+          await emit({ type: "error", text: `${code}: ${raw.slice(0, 280)}` });
         } finally {
           await emit({ type: "done" });
           await writer.close();

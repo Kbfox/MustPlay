@@ -1,4 +1,24 @@
-# Qloo API — engineering notes
+# Qloo API notes
+
+## Verified against the live hackathon API (2026-10-13)
+
+These override anything below that disagrees.
+
+- Video game URN is **`urn:entity:videogame`** (no underscore). The hackathon guide page says `video_game`; the API rejects it with a 400 listing the allowed values.
+- `GET /search?query=…&types=urn:entity:videogame&take=5` → `{ results: [ { name, entity_id, types[], popularity, properties{ description, image.url, platforms[], release_date, external{ igdb{id: slug}, steam, metacritic } }, tags[ { tag_id, name, type } ] } ] }`. Note `tag_id`, not `id`, on search results. Exact-title coverage on 24 common games: 23/24 (miss = diacritics, fixed by normalising).
+- `GET /v2/insights?filter.type=urn:entity:videogame&signal.interests.entities=<uuid,…>&feature.explainability=true&take=N` → `{ success, results: { entities: [ { name, entity_id, type:"urn:entity", subtype:"urn:entity:videogame", popularity, properties{…}, tags[{tag_id,name,type}], query: { affinity, explainability{ "signal.interests.entities": [{entity_id, score}] } } } ] }, query }`. Affinity is a real 0–1 number.
+- Game entities carry tag types: `category:qloo`, `genre:qloo`, `gameplay_type:qloo`, `audience:qloo`, `emotional_tone:qloo`, `art_style:qloo`, `skill_level:qloo`, `platform:qloo`, `player_mode:qloo`. **`filter.tags` works with those ids** (`urn:tag:category:qloo:metroidvania`, `urn:tag:category:qloo:cozy`, `urn:tag:emotional_tone:qloo:relaxing`). `urn:tag:genre:media:*` ids return nothing for games.
+- `/v2/tags?filter.query=cozy` is nearly useless for games (returns place/decor tags; with game tag types it returns `audience:qloo:*` oddities). Synthesising `urn:tag:{category,genre,gameplay_type,emotional_tone}:qloo:<slug>` and validating with a `take=1` insights call works.
+- `signal.interests.tags=<tag id>` biases results instead of filtering; usable fallback when `filter.tags` matches nothing.
+- `filter.release_year.min/max` is silently ignored for games (returned 2018 titles with min=2020). Filter locally on `properties.release_date`.
+- Taste analysis: `filter.type=urn:tag&signal.interests.entities=…&filter.parents.types=urn:entity:videogame&filter.tag.types=urn:tag:category:qloo,urn:tag:gameplay_type:qloo,urn:tag:emotional_tone:qloo,urn:tag:audience:qloo,urn:tag:art_style:qloo,urn:tag:skill_level:qloo` → `{ results: { tags: [ { tag_id, name, subtype, query:{affinity} } ] } }`. Without the parents/types filters the result is noisy keyword tags.
+- Cross-domain works with game seeds: `filter.type=urn:entity:movie|artist|book` returns affinity-ranked films (`properties.release_year`), soundtrack-adjacent artists, and books (Lore Olympus for Hades). Movie tags are mostly plot keywords; show only genre/style/theme/mood types.
+- `/v2/tags/types?filter.parents.types=urn:entity:videogame` lists the tag types above.
+- Platform tag slugs seen: `pc`, `nintendo_switch`, `playstation_4`, `playstation_5`, `xbox_one`, `xbox_series_x`, `xbox_series_x_s`, `ios_iphone_ipad_`. We filter platforms locally via `properties.platforms` names instead.
+- Ops: Cloudflare Workers count every `fetch` and every Cache API call against a 50-subrequest limit per invocation; the Worker memoises Qloo responses in memory instead of the Cache API. Workers AI free tier is 10,000 neurons/day (hit on 2026-10-13 after ~40 agent turns of testing).
+
+---
+
 
 Compiled 2026-10-12 from docs.qloo.com reference pages (get-search, insights-api-deep-dive, get-tags,
 taste-analysis, available-parameters-by-entity-type, parameters, basic-insights-use-case).

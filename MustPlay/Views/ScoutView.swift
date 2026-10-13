@@ -187,10 +187,13 @@ final class ScoutSession {
     }
 
     private static func friendly(serverError text: String) -> String {
-        let lower = text.lowercased()
-        if lower.contains("qloo") { return "Qloo's taste API didn't answer. It happens; try again in a moment." }
-        if lower.contains("llm") || lower.contains("ai") { return "The model behind Scout is busy. Try again in a moment." }
-        return "Scout hit a snag on the server. Try again in a moment."
+        let code = text.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
+        switch code {
+        case "llm_quota": return "Scout's daily AI budget is used up. It resets at midnight UTC."
+        case "llm": return "The model behind Scout is busy. Try again in a moment."
+        case "qloo": return "Qloo's taste API didn't answer. It happens; try again in a moment."
+        default: return "Scout hit a snag on the server. Try again in a moment."
+        }
     }
 
     func cancel() {
@@ -485,11 +488,16 @@ struct ScoutView: View {
 
     private func crossCard(_ card: ScoutCrossCard) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: card.systemImage)
-                .font(.title3)
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            if let url = card.imageURL {
+                CoverImage(url: url, cornerRadius: 10)
+                    .frame(width: 64, height: card.type == "artist" ? 64 : 86)
+            } else {
+                Image(systemName: card.systemImage)
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(card.typeLabel.uppercased())
@@ -507,6 +515,12 @@ struct ScoutView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !card.tags.isEmpty {
+                    Text(card.tags.prefix(3).joined(separator: " · "))
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -568,6 +582,10 @@ struct ScoutView: View {
         if let guidance = guidance(for: intent) {
             session.note(guidance, replyingTo: text)
             return
+        }
+        // Ids cached from the pre-key fixture graph are not Qloo ids; let the Worker resolve again.
+        for game in games where game.qlooEntityID?.hasPrefix("fx:") == true {
+            game.qlooEntityID = nil
         }
         session.ask(text, intent: intent, library: games, focus: lastCompleted) { map in
             for game in games {

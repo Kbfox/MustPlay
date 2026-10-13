@@ -1,26 +1,30 @@
 /**
- * Qloo Taste AI client (hackathon environment).
+ * Qloo Taste AI client (hackathon environment). Shapes below were verified against the live API
+ * on 2026-10-13; see docs/qloo-api-notes.md for the probe log.
  *
  *   base URL   https://hackathon.api.qloo.com     (hackathon keys only work here)
  *   auth       X-Api-Key header
- *   GET /search?query=…&types=urn:entity:video_game    → entity ids
- *   GET /v2/insights?filter.type=…&signal.interests.entities=…   → recommendations with affinity
- *   GET /v2/tags?filter.query=…                                   → tag ids for filters
- *   GET /v2/insights?filter.type=urn:tag&signal.interests.entities=… → taste analysis (tag distribution)
+ *   GET /search?query=…&types=urn:entity:videogame     → { results: [entity] }   (note: "videogame", no underscore)
+ *   GET /v2/insights?filter.type=…&signal.interests.entities=…
+ *                                                       → { results: { entities: [entity + query.affinity] } }
+ *   GET /v2/insights?filter.type=urn:tag&signal.interests.entities=…&filter.parents.types=urn:entity:videogame
+ *                                                       → { results: { tags: [{ tag_id, name, subtype, query.affinity }] } }
+ *   GET /v2/tags?filter.query=…                          → { results: { tags: [{ id, name, type }] } }
  *
- * Without QLOO_API_KEY the client answers from `fixture.ts` so the app flow can be built and demoed
- * before the key arrives. Responses are edge-cached (private cache is allowed by the hackathon rules;
- * Qloo data is never written to the repo).
+ * Game entities carry tags of these types: category:qloo, genre:qloo, gameplay_type:qloo, audience:qloo,
+ * emotional_tone:qloo, art_style:qloo, skill_level:qloo, platform:qloo. `filter.tags` works with those ids
+ * (e.g. urn:tag:category:qloo:cozy); genre:media ids match nothing for games. `filter.release_year.*`
+ * is ignored for games, so years are filtered locally from properties.release_date.
+ *
+ * Without QLOO_API_KEY the client answers from `fixture.ts` so the app can be built and demoed first.
+ * Responses are edge-cached (private caching is allowed by the hackathon rules; nothing is committed).
  */
 import { Env, HttpError } from "./env";
 import * as fixture from "./fixture";
 
 export type EntityType = "video_game" | "movie" | "tv_show" | "artist" | "book";
-// The hackathon guide says `urn:entity:video_game`; the OpenAPI spec says `urn:entity:videogame`.
-// Keep both: send the guide's form, and recognise either when parsing. Verify once the key arrives.
-export const VIDEO_GAME_URN_ALT = "urn:entity:videogame";
 export const ENTITY_URN: Record<EntityType, string> = {
-  video_game: "urn:entity:video_game",
+  video_game: "urn:entity:videogame",
   movie: "urn:entity:movie",
   tv_show: "urn:entity:tv_show",
   artist: "urn:entity:artist",
@@ -37,24 +41,42 @@ export interface QlooEntity {
   year?: number;
   tags: QlooTag[];
   description?: string;
+  image_url?: string;     // Qloo-hosted artwork (games, films, albums)
+  platforms?: string[];   // properties.platforms for games
 }
 export interface TasteTag extends QlooTag { affinity: number }
 
-const CACHE_TTL = 6 * 3600;
+/** Tag types that describe how a game plays and feels; used for taste analysis and constraint lookups. */
+const GAME_TAG_TYPES = [
+  "urn:tag:category:qloo",
+  "urn:tag:gameplay_type:qloo",
+  "urn:tag:genre:qloo",
+  "urn:tag:emotional_tone:qloo",
+  "urn:tag:audience:qloo",
+  "urn:tag:art_style:qloo",
+  "urn:tag:skill_level:qloo",
+];
+
+const CACHE_TTL_MS = 6 * 3600 * 1000;
+const CACHE_MAX = 600;
+
+// In-isolate memo instead of the Cache API: every Cache API call counts against the 50-subrequest
+// budget of a Worker invocation, and one agent turn can make 20+ Qloo lookups.
+const memo = new Map<string, { at: number; data: any }>();
 
 async function get(env: Env, path: string, params: Record<string, string | number | undefined>): Promise<any> {
   const url = new URL(path, env.QLOO_BASE_URL);
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
-  const cache = caches.default;
-  const cacheKey = new Request(`https://qloo-cache.invalid${url.pathname}?${url.searchParams}`);
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit.json();
+  const cacheKey = url.toString();
+  const hit = memo.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
 
   const res = await fetch(url, { headers: { "X-Api-Key": env.QLOO_API_KEY ?? "", Accept: "application/json" } });
   const body = await res.text();
   if (!res.ok) throw new HttpError(502, `qloo ${path} -> ${res.status}`, body.slice(0, 500));
   const data = JSON.parse(body);
-  await cache.put(cacheKey, new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}` } }));
+  if (memo.size >= CACHE_MAX) memo.delete(memo.keys().next().value as string);
+  memo.set(cacheKey, { at: Date.now(), data });
   return data;
 }
 
@@ -62,49 +84,72 @@ export function hasKey(env: Env): boolean {
   return !!env.QLOO_API_KEY;
 }
 
+/** Lower-case, strip diacritics and punctuation, collapse spaces: "God of War Ragnarök" ≈ "God of War: Ragnarok". */
+export function normalizeName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function slug(text: string): string {
+  return normalizeName(text).replace(/\s+/g, "_");
+}
+
 function normalizeTags(raw: any): QlooTag[] {
   const tags = Array.isArray(raw) ? raw : [];
   return tags
-    .map((t: any) => ({ id: String(t.id ?? t.tag_id ?? ""), name: String(t.name ?? ""), type: t.type ? String(t.type) : undefined }))
-    .filter((t: QlooTag) => t.id && t.name)
-    .slice(0, 12);
+    .map((t: any) => ({ id: String(t.id ?? t.tag_id ?? ""), name: String(t.name ?? ""), type: t.type ? String(t.type) : t.subtype ? String(t.subtype) : undefined }))
+    .filter((t: QlooTag) => t.id && t.name);
+}
+
+/** Tags worth showing to a player: genre / mood / style types, not plot keywords or platform metadata. */
+const DISPLAY_TAG_TYPES = [":category:", ":genre:", ":subgenre:", ":gameplay_type:", ":emotional_tone:", ":audience:", ":art_style:", ":skill_level:", ":style:", ":theme:", ":mood:", ":aesthetic_property:", ":characteristic:"];
+function displayTags(tags: QlooTag[]): QlooTag[] {
+  const kept = tags.filter((t) => DISPLAY_TAG_TYPES.some((k) => t.id.includes(k)));
+  return kept.length ? kept : tags.slice(0, 6);
 }
 
 function typeOf(raw: any, fallback: EntityType): EntityType {
-  const urn: string = raw?.subtype ?? raw?.type ?? (Array.isArray(raw?.types) ? raw.types[0] : "") ?? "";
-  if (urn === VIDEO_GAME_URN_ALT || urn.startsWith(VIDEO_GAME_URN_ALT)) return "video_game";
+  const urn: string = raw?.subtype ?? (Array.isArray(raw?.types) ? raw.types[0] : raw?.type) ?? "";
   for (const [k, v] of Object.entries(ENTITY_URN)) if (urn === v || urn.startsWith(v)) return k as EntityType;
   return fallback;
 }
 
 function yearOf(raw: any): number | undefined {
-  const d: string | undefined = raw?.properties?.release_date ?? raw?.properties?.release_year ?? raw?.properties?.publication_date;
-  if (!d) return undefined;
+  const p = raw?.properties ?? {};
+  const d = p.release_year ?? p.release_date ?? p.publication_year ?? p.publication_date;
+  if (d === undefined || d === null) return undefined;
   const y = parseInt(String(d).slice(0, 4), 10);
   return Number.isFinite(y) ? y : undefined;
 }
 
 function normalizeEntity(raw: any, fallback: EntityType): QlooEntity {
+  const p = raw?.properties ?? {};
   return {
     entity_id: String(raw.entity_id ?? raw.id ?? ""),
     name: String(raw.name ?? ""),
     type: typeOf(raw, fallback),
-    affinity: typeof raw?.query?.affinity === "number" ? raw.query.affinity : undefined,
+    affinity: typeof raw?.query?.affinity === "number" ? Number(raw.query.affinity.toFixed(3)) : undefined,
     popularity: typeof raw.popularity === "number" ? raw.popularity : undefined,
     year: yearOf(raw),
-    tags: normalizeTags(raw.tags),
-    description: raw?.properties?.description ? String(raw.properties.description).slice(0, 240) : undefined,
+    tags: displayTags(normalizeTags(raw.tags)),
+    description: p.description ? String(p.description).slice(0, 240) : undefined,
+    image_url: p.image?.url ? String(p.image.url) : undefined,
+    platforms: Array.isArray(p.platforms) ? p.platforms.map(String) : undefined,
   };
 }
 
-/** Resolve a title to a Qloo entity. Exact (case-insensitive) name match wins, else the most popular hit. */
+/** Resolve a title to a Qloo entity. Normalised exact name match wins, else the most popular hit. */
 export async function resolve(env: Env, name: string, type: EntityType = "video_game"): Promise<QlooEntity | null> {
   if (!hasKey(env)) return fixture.resolve(name, type);
   const data = await get(env, "/search", { query: name, types: ENTITY_URN[type], take: 5 });
-  const results: any[] = data?.results ?? data?.entities ?? [];
+  const results: any[] = data?.results ?? [];
   if (!results.length) return null;
-  const needle = name.trim().toLowerCase();
-  const exact = results.find((r) => String(r.name ?? "").toLowerCase() === needle);
+  const needle = normalizeName(name);
+  const exact = results.find((r) => normalizeName(String(r.name ?? "")) === needle);
   const best = exact ?? [...results].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))[0];
   return normalizeEntity(best, type);
 }
@@ -113,50 +158,129 @@ export interface RecommendInput {
   seedIds: string[];
   type: EntityType;
   tagIds?: string[];
+  platform?: string;      // free text, matched against properties.platforms ("Switch", "PS5", "PC")
   minYear?: number;
   maxYear?: number;
   take?: number;
 }
 
+export interface RecommendResult {
+  items: QlooEntity[];
+  /** How the tag constraint was applied, so the agent can say so honestly. */
+  tagMode: "filter" | "signal" | "dropped" | "none";
+}
+
+const PLATFORM_ALIASES: Record<string, string[]> = {
+  switch: ["nintendo switch"],
+  "switch 2": ["nintendo switch 2"],
+  pc: ["pc", "windows", "mac", "linux"],
+  mac: ["mac"],
+  ps5: ["playstation 5"],
+  ps4: ["playstation 4"],
+  playstation: ["playstation"],
+  xbox: ["xbox"],
+  "series x": ["xbox series"],
+  ios: ["ios", "iphone", "ipad"],
+  iphone: ["ios", "iphone"],
+  android: ["android"],
+  "steam deck": ["pc"],
+};
+
+function platformMatches(entity: QlooEntity, platform?: string): boolean {
+  if (!platform) return true;
+  if (!entity.platforms?.length) return true; // unknown: don't drop
+  const want = PLATFORM_ALIASES[platform.trim().toLowerCase()] ?? [platform.trim().toLowerCase()];
+  const have = entity.platforms.map((p) => p.toLowerCase());
+  return want.some((w) => have.some((h) => h.includes(w)));
+}
+
 /** Recommendations grounded in the seed entities. Works across domains (games → movies, etc.). */
-export async function recommend(env: Env, input: RecommendInput): Promise<QlooEntity[]> {
-  if (!hasKey(env)) return fixture.recommend(input);
-  const data = await get(env, "/v2/insights", {
+export async function recommend(env: Env, input: RecommendInput): Promise<RecommendResult> {
+  if (!hasKey(env)) return { items: fixture.recommend(input), tagMode: input.tagIds?.length ? "filter" : "none" };
+
+  const base: Record<string, string | number | undefined> = {
     "filter.type": ENTITY_URN[input.type],
     "signal.interests.entities": input.seedIds.length ? input.seedIds.join(",") : undefined,
-    "filter.tags": input.tagIds?.length ? input.tagIds.join(",") : undefined,
-    "filter.release_year.min": input.minYear,
-    "filter.release_year.max": input.maxYear,   // movies/TV only per the spec; ignored for games
     "feature.explainability": "true",
-    take: Math.min(50, input.take ?? 10),
-  });
-  const entities: any[] = data?.results?.entities ?? data?.entities ?? [];
-  return entities.map((e) => normalizeEntity(e, input.type)).filter((e) => e.entity_id && e.name);
+    // Over-fetch: platform/year are filtered locally, library titles are removed by the caller.
+    take: Math.min(50, Math.max(20, (input.take ?? 10) * 3)),
+  };
+  const parse = (data: any): QlooEntity[] =>
+    ((data?.results?.entities ?? []) as any[]).map((e) => normalizeEntity(e, input.type)).filter((e) => e.entity_id && e.name);
+
+  let items: QlooEntity[] = [];
+  let tagMode: RecommendResult["tagMode"] = "none";
+  const tagIds = (input.tagIds ?? []).filter(Boolean);
+  if (tagIds.length) {
+    items = parse(await get(env, "/v2/insights", { ...base, "filter.tags": tagIds.join(",") }));
+    tagMode = "filter";
+    if (!items.length) {
+      // Hard filter matched nothing (tag may not apply to this domain): bias instead of filter.
+      items = parse(await get(env, "/v2/insights", { ...base, "signal.interests.tags": tagIds.join(",") }));
+      tagMode = items.length ? "signal" : "dropped";
+    }
+  }
+  if (!items.length) {
+    if (!base["signal.interests.entities"]) return { items: [], tagMode };
+    items = parse(await get(env, "/v2/insights", base));
+  }
+
+  const filtered = items
+    .filter((e) => platformMatches(e, input.platform))
+    .filter((e) => (input.minYear && e.year ? e.year >= input.minYear : true))
+    .filter((e) => (input.maxYear && e.year ? e.year <= input.maxYear : true));
+  return { items: filtered.slice(0, input.take ?? 10), tagMode };
 }
 
-/** Tag lookup for natural-language constraints ("cozy", "roguelike", "short"). */
-export async function tags(env: Env, query: string, take = 8): Promise<QlooTag[]> {
+/**
+ * Turn a mood / genre word into Qloo tag ids that apply to games.
+ * /v2/tags search is weak for game tags, so candidates are also synthesised per tag type
+ * (urn:tag:category:qloo:cozy …) and validated with a one-result insights call.
+ */
+export async function tags(env: Env, query: string, take = 6): Promise<QlooTag[]> {
   if (!hasKey(env)) return fixture.tags(query);
-  const data = await get(env, "/v2/tags", { "filter.query": query, take });
-  const results: any[] = data?.results?.tags ?? data?.results ?? [];
-  return normalizeTags(results);
+  const found: QlooTag[] = [];
+  const data = await get(env, "/v2/tags", { "filter.query": query, "filter.tag.types": GAME_TAG_TYPES.join(","), take });
+  for (const t of normalizeTags(data?.results?.tags ?? [])) found.push(t);
+
+  const s = slug(query);
+  if (s) {
+    const candidates = ["category", "genre", "gameplay_type", "emotional_tone"].map((kind) => `urn:tag:${kind}:qloo:${s}`);
+    const checks = await Promise.all(
+      candidates.map(async (id) => {
+        if (found.some((t) => t.id === id)) return null;
+        try {
+          const d = await get(env, "/v2/insights", { "filter.type": ENTITY_URN.video_game, "filter.tags": id, take: 1 });
+          return (d?.results?.entities ?? []).length ? ({ id, name: query.trim(), type: id.split(":").slice(0, 3).join(":") } as QlooTag) : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const t of checks) if (t) found.unshift(t); // synthesised exact ids are the most literal match
+  }
+  return found.slice(0, take);
 }
 
-/** Taste analysis: which tags characterise the seed set, with affinity. */
-export async function taste(env: Env, seedIds: string[], take = 12): Promise<TasteTag[]> {
+/** Taste analysis: which game tags characterise the seed set, with affinity. */
+export async function taste(env: Env, seedIds: string[], take = 14): Promise<TasteTag[]> {
   if (!hasKey(env)) return fixture.taste(seedIds);
+  if (!seedIds.length) return [];
   const data = await get(env, "/v2/insights", {
     "filter.type": "urn:tag",
     "signal.interests.entities": seedIds.join(","),
+    "filter.parents.types": ENTITY_URN.video_game,
+    "filter.tag.types": GAME_TAG_TYPES.filter((t) => !t.includes(":genre:")).join(","),
     take,
   });
-  const results: any[] = data?.results?.tags ?? data?.results?.entities ?? [];
+  const results: any[] = data?.results?.tags ?? [];
+  const seen = new Set<string>();
   return results
     .map((t) => ({
-      id: String(t.id ?? t.tag_id ?? t.entity_id ?? ""),
+      id: String(t.tag_id ?? t.id ?? ""),
       name: String(t.name ?? ""),
-      type: t.type ? String(t.type) : undefined,
-      affinity: typeof t?.query?.affinity === "number" ? t.query.affinity : typeof t.affinity === "number" ? t.affinity : 0,
+      type: t.subtype ? String(t.subtype) : undefined,
+      affinity: typeof t?.query?.affinity === "number" ? Number(t.query.affinity.toFixed(3)) : 0,
     }))
-    .filter((t) => t.id && t.name);
+    .filter((t) => t.id && t.name && !seen.has(t.name.toLowerCase()) && (seen.add(t.name.toLowerCase()), true));
 }

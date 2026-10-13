@@ -38,9 +38,11 @@ struct ScoutGameCard: Decodable, Identifiable, Hashable {
     let qloo_id: String?
     let affinity: Double?
     let tags: [String]
+    let image_url: String?
 
     var id: String { "\(igdb_id ?? 0)-\(name)" }
-    var coverURL: URL? { IGDBImage.url(imageID: cover_image_id, size: .coverBig) }
+    /// IGDB cover when we have one, else Qloo's artwork.
+    var coverURL: URL? { IGDBImage.url(imageID: cover_image_id, size: .coverBig) ?? image_url.flatMap(URL.init(string:)) }
 }
 
 struct ScoutTasteTag: Decodable, Hashable {
@@ -54,8 +56,10 @@ struct ScoutCrossCard: Decodable, Identifiable, Hashable {
     let year: Int?
     let reason: String
     let tags: [String]
+    let image_url: String?
 
     var id: String { "\(type)-\(name)" }
+    var imageURL: URL? { image_url.flatMap(URL.init(string:)) }
 
     var systemImage: String {
         switch type {

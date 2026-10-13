@@ -41,9 +41,10 @@ export interface GameCard {
   qloo_id?: string;
   affinity?: number;
   tags: string[];
+  image_url?: string;     // Qloo artwork, used when there's no IGDB cover
 }
 
-export interface CrossCard { type: qloo.EntityType; name: string; year?: number; reason: string; tags: string[] }
+export interface CrossCard { type: qloo.EntityType; name: string; year?: number; reason: string; tags: string[]; image_url?: string }
 
 export type AgentEvent =
   | { type: "status"; text: string }
@@ -62,11 +63,11 @@ How to work:
 1. The player's library is given below. "Loved" games = completed with rating >= 4, or currently playing. "Want" games = status wantToPlay.
 2. First call qloo_resolve on the loved games (and the want games when picking from the pile) to get Qloo entity ids. Skip games it cannot resolve.
 3. Then call qloo_recommend with the loved ids as seeds. For "pick from my pile" use only_library=true so results are ranked against the Want pile. For "find something new" leave it false and exclude the library.
-4. If the player states a constraint (cozy, short, roguelike, on Switch, 90s...), call qloo_tags to turn it into tag ids and pass them as tag_ids; use platforms from the library data for platform constraints.
+4. If the player states a mood or genre (cozy, roguelike, horror, relaxing...), call qloo_tags with ONE word at a time and pass the returned ids as tag_ids. For a platform ("on Switch", "PS5") pass platform. For an era pass min_year / max_year. If the tool result says the tag constraint was dropped, say so briefly in the closing line.
 5. Finish by calling show_games (or show_taste / show_crossover). Each reason is one sentence of 8–18 words that names at least one shared tag from the tool results AND one loved game it connects to, e.g. "Metroidvania and difficult, the same lane as Celeste and Hades." Never a single word. Never invent a tag.
-6. Then write one short closing line (under 25 words). No markdown, no lists.
+6. Then write one short closing line (under 25 words) spoken to the player: name the mood or thread that ties the picks to a game they loved, in your own words. Never repeat tool notes or describe your steps. No markdown, no lists.
 
-Hard rules: at most 3 cards unless asked for more. Do not recommend a game already completed. If nothing resolves, say so plainly and suggest rating a few finished games first.`;
+Hard rules: for "find something new" show 3 cards whenever the tools return 3 or more candidates; for "pick from my pile" show exactly 1. Do not recommend a game already completed. If nothing resolves, say so plainly and suggest rating a few finished games first.`;
 
 const TOOLS: llm.ToolSpec[] = [
   {
@@ -90,6 +91,7 @@ const TOOLS: llm.ToolSpec[] = [
         seed_ids: { type: "array", items: { type: "string" }, description: "Qloo entity ids of loved games" },
         type: { type: "string", enum: ["video_game", "movie", "tv_show", "artist", "book"], description: "What to recommend. Default video_game" },
         tag_ids: { type: "array", items: { type: "string" }, description: "Optional Qloo tag ids from qloo_tags to constrain results" },
+        platform: { type: "string", description: "Platform the player named, e.g. Switch, PS5, PC, Xbox, iOS" },
         min_year: { type: "integer" },
         max_year: { type: "integer" },
         only_library: { type: "boolean", description: "true = rank the player's Want pile; false = discover beyond the library" },
@@ -155,6 +157,18 @@ const TOOLS: llm.ToolSpec[] = [
   },
 ];
 
+/** Keep closing lines short: at most two sentences / ~45 words, and never the model's step-by-step narration. */
+function clip(text: string): string {
+  const cleaned = text.replace(/^(first|then|next|finally)[,\s][^.!?]*[.!?]\s*/gi, "").trim();
+  const sentences = cleaned.match(/[^.!?]+[.!?]+/g) ?? [cleaned];
+  let out = "";
+  for (const sentence of sentences) {
+    if ((out + sentence).split(/\s+/).length > 45 && out) break;
+    out += sentence;
+  }
+  return out.trim() || cleaned;
+}
+
 /** Llama sometimes passes array arguments as JSON strings; accept both. */
 function arr<T = any>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -189,10 +203,14 @@ function intentPrompt(intent: Intent | undefined, focus?: LibraryGame): string {
 
 export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, emit: (e: AgentEvent) => Promise<void>): Promise<void> {
   const lib = req.library ?? [];
-  const byName = new Map(lib.map((g) => [g.name.toLowerCase(), g] as const));
+  const key = qloo.normalizeName;
+  const byName = new Map(lib.map((g) => [key(g.name), g] as const));
   const resolved = new Map<string, qloo.QlooEntity>();   // name(lower) → entity
   const resolvedMap: Record<number, string> = {};
-  for (const g of lib) if (g.qloo_id) resolved.set(g.name.toLowerCase(), { entity_id: g.qloo_id, name: g.name, type: "video_game", tags: [] });
+  // Only trust cached ids that look like Qloo's UUIDs; anything else (e.g. fixture ids) is re-resolved.
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const trustCache = qloo.hasKey(env);
+  for (const g of lib) if (g.qloo_id && trustCache && UUID.test(g.qloo_id)) resolved.set(key(g.name), { entity_id: g.qloo_id, name: g.name, type: "video_game", tags: [] });
   const seen = new Map<string, qloo.QlooEntity>();       // every entity returned by recommend, by lower name
   const focus = req.focus_igdb_id ? lib.find((g) => g.igdb_id === req.focus_igdb_id) : undefined;
 
@@ -219,11 +237,13 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
   if (!qloo.hasKey(env)) await emit({ type: "status", text: "Qloo key not set — using the built-in sample taste graph" });
 
   let shown = false;
+  let spoke = false;
+  let tasteDone = false;
   for (let step = 0; step < 7; step++) {
     const res = await llm.chat(env, messages, TOOLS);
     if (!res.toolCalls.length) {
-      const content = res.content.trim();
-      if (content) await emit({ type: "message", text: content });
+      const content = clip(res.content.trim());
+      if (content) { await emit({ type: "message", text: content }); spoke = true; }
       if (shown || content) break;
       // The model answered nothing and showed nothing: nudge once.
       messages.push({ role: "user", content: "Use the tools now. Start with qloo_resolve." });
@@ -242,11 +262,11 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             await emit({ type: "status", text: `Looking up ${names.length} title${names.length === 1 ? "" : "s"} on Qloo…` });
             const out: { name: string; entity_id: string | null; tags?: string[] }[] = [];
             for (const n of names) {
-              const cached = resolved.get(n.toLowerCase());
+              const cached = resolved.get(key(n));
               const e = cached ?? (await qloo.resolve(env, n, type));
               if (e) {
-                resolved.set(n.toLowerCase(), e);
-                const g = byName.get(n.toLowerCase());
+                resolved.set(key(n), e);
+                const g = byName.get(key(n));
                 if (g) resolvedMap[g.igdb_id] = e.entity_id;
                 out.push({ name: n, entity_id: e.entity_id, tags: e.tags.map((t) => t.name).slice(0, 6) });
               } else out.push({ name: n, entity_id: null });
@@ -260,39 +280,47 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             const onlyLibrary = a.only_library === true || a.only_library === "true";
             await emit({ type: "status", text: onlyLibrary ? "Ranking your pile against your taste…" : `Asking Qloo's taste graph for ${type.replace("_", " ")}s…` });
             const take = onlyLibrary ? 40 : (a.take ?? 10);
-            const items = await qloo.recommend(env, { seedIds: arr<string>(a.seed_ids), type, tagIds: a.tag_ids ? arr<string>(a.tag_ids) : undefined, minYear: a.min_year, maxYear: a.max_year, take });
-            for (const e of items) seen.set(e.name.toLowerCase(), e);
-            const libNames = new Set(lib.map((g) => g.name.toLowerCase()));
+            const { items, tagMode } = await qloo.recommend(env, {
+              seedIds: arr<string>(a.seed_ids), type, tagIds: a.tag_ids ? arr<string>(a.tag_ids) : undefined,
+              platform: typeof a.platform === "string" ? a.platform : undefined, minYear: a.min_year, maxYear: a.max_year, take,
+            });
+            for (const e of items) seen.set(key(e.name), e);
+            const libNames = new Set(lib.map((g) => key(g.name)));
             let filtered = items;
+            let note = tagMode === "filter" ? "tags applied as a hard filter" : tagMode === "signal" ? "tags did not match as a filter; applied as a soft bias instead" : tagMode === "dropped" ? "tags matched nothing and were dropped" : "no tag constraint";
             if (type === "video_game") {
               if (onlyLibrary) {
-                const want = new Set(lib.filter((g) => g.status === "wantToPlay").map((g) => g.name.toLowerCase()));
-                // Qloo may not echo back library titles when it recommends; fall back to matching names.
-                filtered = items.filter((e) => want.has(e.name.toLowerCase()));
-                if (!filtered.length) {
-                  // Rank the pile ourselves: resolve want games and score by tag overlap with recommendations.
+                const want = new Set(lib.filter((g) => g.status === "wantToPlay").map((g) => key(g.name)));
+                // Qloo rarely echoes the player's own titles back, so rank the pile by how much each Want
+                // game's tags overlap with what Qloo recommends from the loved games.
+                filtered = items.filter((e) => want.has(key(e.name)));
+                if (filtered.length < 2) {
                   const tagPool = new Map<string, number>();
                   for (const e of items) for (const t of e.tags) tagPool.set(t.id, (tagPool.get(t.id) ?? 0) + (e.affinity ?? 0.5));
                   const scored: qloo.QlooEntity[] = [];
                   for (const g of lib.filter((g) => g.status === "wantToPlay")) {
-                    const e = resolved.get(g.name.toLowerCase()) ?? (await qloo.resolve(env, g.name, "video_game"));
+                    const e = resolved.get(key(g.name)) ?? (await qloo.resolve(env, g.name, "video_game"));
                     if (!e) continue;
-                    resolved.set(g.name.toLowerCase(), e);
+                    resolved.set(key(g.name), e);
                     resolvedMap[g.igdb_id] = e.entity_id;
                     const score = e.tags.reduce((s, t) => s + (tagPool.get(t.id) ?? 0), 0);
                     scored.push({ ...e, affinity: Number(Math.min(0.99, score / Math.max(1, items.length)).toFixed(2)) });
                   }
                   filtered = scored.sort((x, y) => (y.affinity ?? 0) - (x.affinity ?? 0));
-                  for (const e of filtered) seen.set(e.name.toLowerCase(), e);
+                  for (const e of filtered) seen.set(key(e.name), e);
                   if (Object.keys(resolvedMap).length) await emit({ type: "resolved", map: resolvedMap });
+                  note = "Want pile ranked by tag overlap with Qloo's recommendations from the loved games";
+                } else {
+                  note = "Want pile titles that Qloo itself recommends, affinity-ranked";
                 }
               } else {
-                filtered = items.filter((e) => !libNames.has(e.name.toLowerCase()));
+                filtered = items.filter((e) => !libNames.has(key(e.name)));
+                note += "; library titles removed";
               }
             }
             result = {
-              note: onlyLibrary ? "ranked within the player's Want pile" : "library titles removed",
-              items: filtered.slice(0, 12).map((e) => ({ name: e.name, year: e.year, affinity: e.affinity, tags: e.tags.map((t) => t.name).slice(0, 6) })),
+              note,
+              items: filtered.slice(0, 12).map((e) => ({ name: e.name, year: e.year, affinity: e.affinity, platforms: e.platforms?.slice(0, 5), tags: e.tags.map((t) => t.name).slice(0, 7) })),
             };
             break;
           }
@@ -304,6 +332,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
           case "qloo_taste": {
             await emit({ type: "status", text: "Reading your taste profile…" });
             const found = await qloo.taste(env, arr<string>(a.seed_ids));
+            tasteDone = found.length > 0;
             result = { tags: found.map((t) => ({ name: t.name, affinity: t.affinity })) };
             break;
           }
@@ -312,7 +341,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             await emit({ type: "status", text: "Fetching covers…" });
             const cards: GameCard[] = [];
             for (const p of picks) {
-              const lower = p.name.toLowerCase();
+              const lower = key(p.name);
               const g = byName.get(lower);
               const e = seen.get(lower) ?? resolved.get(lower);
               let meta: igdb.IGDBGameLite | null = null;
@@ -328,6 +357,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
                 qloo_id: e?.entity_id,
                 affinity: e?.affinity,
                 tags: e?.tags.map((t) => t.name).slice(0, 4) ?? [],
+                image_url: e?.image_url,
               });
             }
             if (!cards.length) {
@@ -340,6 +370,10 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             break;
           }
           case "show_taste": {
+            if (!tasteDone) {
+              result = { error: "call qloo_taste with the loved games' entity ids first, then show_taste with its tag names" };
+              break;
+            }
             const names: string[] = arr<string>(a.tag_names).slice(0, 6);
             await emit({ type: "taste", summary: String(a.summary ?? ""), tags: names.map((n, i) => ({ name: n, affinity: Number((1 - i * 0.12).toFixed(2)) })) });
             shown = true;
@@ -353,8 +387,8 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
               break;
             }
             const items: CrossCard[] = picks.map((p) => {
-              const e = seen.get(p.name.toLowerCase());
-              return { type: p.type, name: e?.name ?? p.name, year: e?.year, reason: p.reason, tags: e?.tags.map((t) => t.name).slice(0, 4) ?? [] };
+              const e = seen.get(key(p.name));
+              return { type: p.type, name: e?.name ?? p.name, year: e?.year, reason: p.reason, tags: e?.tags.map((t) => t.name).slice(0, 4) ?? [], image_url: e?.image_url };
             });
             await emit({ type: "crossover", items });
             shown = true;
@@ -372,5 +406,5 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
       messages.push({ role: "tool", tool_call_id: call.id, name: call.name, content: JSON.stringify(result).slice(0, 12000) });
     }
   }
-  if (!shown) await emit({ type: "message", text: "I couldn't line that up with Qloo this time. Try again, or rate a couple more finished games so I know your taste." });
+  if (!shown && !spoke) await emit({ type: "message", text: "I couldn't line that up with Qloo this time. Try again, or rate a couple more finished games so I know your taste." });
 }
