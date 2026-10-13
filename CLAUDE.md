@@ -7,7 +7,7 @@ iOS 游戏"人生必玩清单" App，参加 **RevenueCat Shipaton 2026**。主�
 - **2026-09-30 23:45 PDT** Devpost 提交截止
 - 评审 10-01–10-13，公布 10-21
 
-## 状态（截至 2026-09-26 凌晨：已提交 App Store 审核，见第 4 节）
+## 状态（截至 2026-10-13：**已上架 App Store**，见第 4 节末）
 - **Xcode 27.0（27A266a）已装好并选中**，iOS 26.5 模拟器运行时；SPM（RevenueCat 5.89.0、OneSignal 5.6.1）已解析，2026-09-16 干净编译通过（`rm -rf build/dd` 后重编，无新警告）。命令见下
 - **模拟器实测全链路跑通**：IGDB 搜索（带封面）→ 添加 → 首次添加弹通知权限 → 详情 → Mark as Completed → 5 星 + 一句话 → 分享卡片；列表状态回写正常
 - 今日修复：① iOS 26 下从详情页返回后系统大标题消失 → 改为自定义 header（`RootView` 顶部 inset 里画 "MustPlay"，导航栏 inline 空标题）；② 搜索排序（1995 版 Hades 曾排在 2020 版前面）→ `IGDBClient.search` 加载 `total_rating_count`，over-fetch 后本地排：精确同名 > 评分人数 > IGDB 原序
@@ -59,6 +59,7 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
    **⚠️ 10-01 11:06 发现截止时间有两个版本**：规则正文写 09-30 23:45 PDT，但 Devpost 活动页顶部和 Schedule 页显示 **Deadline: Oct 1, 2026 @ 12:00pm PDT（北京 10-02 03:00）**，Devpost 管理页也按这个倒计时（系统在此时关闭提交）。以 Devpost 显示为准继续等审核。Devpost 描述顶部加了一行 Status 说明（上架后删掉）。上架检测用公开接口 `curl -s "https://itunes.apple.com/lookup?id=6816116027"`（resultCount 0→1），会话内 cron 每小时查。
    **❌ 10-02：Shipaton 截止（Devpost 显示的 10-01 12:00pm PDT = 北京 10-02 03:00）已过，App 仍未上架**（10-02 13:54 查 `itunes.apple.com/lookup?id=6816116027` 仍 resultCount 0）。本届评奖资格没了；Devpost 提交保留不撤。上架检测 cron 已停。之后：App 继续等审核照常上架；上架后删掉 Devpost 描述顶部的 Status 行、给 Charlie 回短信；备选比赛见对话（Amazon Developer Hackathon 至 10-23 需读规则、Best Mobile App Awards 最终 2027-01-08）。教训：截止时间要以活动页为准并尽早核对；新开发者账号首次提交会触发 2.1 信息问询 + 排队数天，至少提前 10 天提交。
    **10-03：第二次拒审 3.1.2(c)（10-03 00:31，审核机 iPad Air M3 + iPhone 17 Pro Max）**：试用比价格突出、未写明试用后自动扣费。**修复全在 RC 付费墙远程配置，无需新构建**（AI 编辑器一句话改完并 Publish）：① Yearly 徽章 "7 DAYS FREE" → "{{ offer_period }} free, then {{ price_per_period }}"；② 按钮下方新增随所选套餐变化的声明（试用："X free, then $9.99/year. Renews automatically until cancelled in App Store settings."；Monthly："$1.99/month, renews automatically until cancelled."；Lifetime："One-time payment of $19.99. No subscription."）；③ 按钮有试用时 "Start {{ offer_period }} free trial" 否则 "Continue"。模拟器 Test Store 已验证三种状态（截图在 `~/Desktop/mustplay-review-3.1.2/`）。13:17 已回复审核并附两张截图 → 版本页"更新审核" → "重新提交至 App 审核"，5 项再次"等待审核"；拒审后重提会自动回到加急队列。RC 变量注意：没有 `price_per_period_full`，用 `{{ product.price_per_period }}`。
+   **✅ 10-13 06:40（北京）App Store 正式上架**：`itunes.apple.com/lookup?id=6816116027` resultCount 1，版本 1.0，releaseDate 2026-10-12T22:40:37Z，免费，iOS 17+。链接 https://apps.apple.com/app/id6816116027 。审核历程：09-26 00:16 首提 → 09-26 2.1 信息问询 → 09-26 16:30 重提 → 09-30 加急生效 → 10-03 3.1.2(c) 拒审 → 10-03 13:17 重提 → 10-12 通过。上架后事项：Devpost 描述顶部 Status 行删除、给 Charlie 回短信、确认真机付费墙显示 "7 days free"。
    **接下来**：每天看 ASC 状态与邮件；被拒当天改完重提（改代码要把 project.yml 的 CURRENT_PROJECT_VERSION 改成 2 再归档上传）。通过后：促销代码（ASC → 促销代码，可选）、Devpost 勾选 8/1–9/30 首发、确认 App Store 链接可访问。
    **09-26 上午（原计划，已被上面替代）**：TestFlight 上传，沙盒账号真买一遍三个商品；截图（1179×2556，无边框）；App 隐私问卷；审核备注里写清 "Test Store 已换成 App Store"、IAP 随版本一并提交、附 Simulate Pro 不在 Release 里
    **09-26 下午**：Submit for Review（把 3 个 IAP 一起勾上）。之后每天查状态；被拒当天改完重提
