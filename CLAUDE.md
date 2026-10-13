@@ -1,5 +1,7 @@
 # MustPlay — 给下一个会话的交接
 
+> **2026-10-13 起主线已转到新项目 Gofer**（PayPal AI Hackathon，截止 11-12），目录 `~/Documents/Claude/Projects/Gofer`，仓库 github.com/Kbfox/gofer，交接见该目录 CLAUDE.md。MustPlay 已于 10-12 上架 App Store（https://apps.apple.com/app/id6816116027）；Shipaton 2026 因超期无资格，Devpost 提交保留。MustPlay 侧待办：给 Charlie 回上架短信；Qloo 支线（Scout）由另一会话负责。
+
 iOS 游戏"人生必玩清单" App，参加 **RevenueCat Shipaton 2026**。主攻 **Gaming 影响力奖**（评委 Lewis Blogs Gaming，命题原文："Build a gaming bucket list where players can easily **save, organize, complete, rate, and share** the games they want to play"），顺带报 OneSignal、Design、#BuildInPublic。
 
 ## 硬截止
