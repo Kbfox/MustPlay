@@ -7,9 +7,9 @@ workers_dev = true
 binding = "AI"   # Workers AI for the Scout agent: no API key, billed to the Cloudflare account (free tier first)
 
 [vars]
-LLM_PROVIDER = "workers-ai"     # workers-ai | openai-compatible (then set LLM_BASE_URL + secret LLM_API_KEY)
-LLM_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-LLM_BASE_URL = ""
+LLM_PROVIDER = "openai-compatible"   # workers-ai | openai-compatible (needs LLM_BASE_URL + secret LLM_API_KEY)
+LLM_MODEL = "deepseek-chat"          # Workers AI fallback: @cf/meta/llama-3.3-70b-instruct-fp8-fast
+LLM_BASE_URL = "https://api.deepseek.com"
 QLOO_BASE_URL = "https://hackathon.api.qloo.com"
 
 # Secrets are NOT stored here. Set them with:
