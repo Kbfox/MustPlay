@@ -84,3 +84,10 @@ xcrun simctl install booted build/dd/Build/Products/Debug-iphonesimulator/MustPl
 
 ## 环境提示：ECC GateGuard 钩子（用户已于 2026-09-15 关闭）
 正常情况下直接写文件即可。如果又出现 "[Fact-Forcing Gate]" 拦截，说明钩子被重新启用：它要求紧接工具调用前的助手文本包含四点——调用者（文件:行）、无重复的检索证据（先跑一次 find/grep）、数据结构、用户原话。约一半批次即使写了也会被拒，**被拒后原样重述再发一次即可通过**，不用排查。关闭方式：`ECC_GATEGUARD=off` 或把钩子名加入 `ECC_DISABLED_HOOKS`。
+
+## Qloo Agentic Hackathon（2026-10-12 已报名）
+- 页面 https://qloo.devpost.com ，Devpost 账号 Kbfox 已 Join；API key 申请表（Google Form）已提交（zengyx83@gmail.com，姓名 YiXing Zeng，国家 China，项目方向写的是"基于 MustPlay 的 taste-aware 选游戏 agent"），key 几个工作日内发邮件，**注意查垃圾箱**。
+- 截止 **2026-10-30 23:45 ET（北京 10-31 11:45）**；评审 11-02–11-16，公布 11-23。奖金 $15k/$6k/$4k，另 Jason Calacanis 对其最喜欢的作品追加投资 $25k。中国可参赛。
+- 硬要求：必须用 Qloo API（base URL `https://hackathon.api.qloo.com`，header `X-Api-Key`，只用 `/v2/insights` + `/search` + `/v2/tags`，不要用 `/recs`）；是 agent 工具或用 agent 框架；**不需要视频**，但要：① 公开可用的在线 demo（网页或 TestFlight 均可，本地跑不算）② 公开仓库 + 顶部 About 可见的开源 license ③ 文字描述。已有项目可参赛，但必须在 09-30 后接入 Qloo 并说明改动。
+- 评分四项等权：Qloo 用得深不深 / 产品完整度 / 真实问题的影响力 / 创意非显而易见。原话："If your submission would work the same without Qloo, you're building the wrong thing."
+- 支持的 filter.type 含 `urn:entity:video_game`，所以 MustPlay 方向可行。
