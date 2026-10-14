@@ -338,9 +338,26 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
           }
           case "show_games": {
             const picks = arr<{ name: string; reason: string }>(a.picks).filter((p) => p && typeof p.name === "string").slice(0, 5);
+            if (req.intent === "pick" && shown) {
+              result = { error: "one pick is already shown; do not call show_games again, just write the closing line" };
+              break;
+            }
+            // Hard rules the model must not be able to break: never a completed game; for "pick", only the Want pile.
+            const rejected: string[] = [];
+            const accepted = picks.filter((p) => {
+              const g = byName.get(key(p.name));
+              if (g?.status === "completed") { rejected.push(`${p.name} is already completed`); return false; }
+              if (req.intent === "pick" && g?.status !== "wantToPlay") { rejected.push(`${p.name} is not in the Want pile`); return false; }
+              return true;
+            }).slice(0, req.intent === "pick" ? 1 : 5);
+            if (!accepted.length) {
+              const wantNames = lib.filter((g) => g.status === "wantToPlay").map((g) => g.name);
+              result = { error: `no valid picks: ${rejected.join("; ")}.` + (req.intent === "pick" ? ` Choose exactly one of: ${wantNames.join(", ")}` : " Use names from qloo_recommend results that are not in the library.") };
+              break;
+            }
             await emit({ type: "status", text: "Fetching covers…" });
             const cards: GameCard[] = [];
-            for (const p of picks) {
+            for (const p of accepted) {
               const lower = key(p.name);
               const g = byName.get(lower);
               const e = seen.get(lower) ?? resolved.get(lower);
@@ -366,7 +383,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             }
             await emit({ type: "games", title: a.title, items: cards });
             shown = true;
-            result = { shown: cards.map((c) => c.name) };
+            result = { shown: cards.map((c) => c.name), ...(rejected.length ? { rejected } : {}) };
             break;
           }
           case "show_taste": {
