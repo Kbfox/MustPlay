@@ -16,7 +16,6 @@ swift, swiftui, swiftdata, cloudflare-workers, typescript, qloo, deepseek, igdb,
 
 ## Links
 - Live demo (App Store, free, iOS 17+; Scout ships in 1.1.0, live since 14 Oct 2026): https://apps.apple.com/app/id6816116027
-- TestFlight public link (same build): https://testflight.apple.com/join/EK1Wx4Nw
 - Public repo (MIT): https://github.com/Kbfox/MustPlay
 - Privacy policy: https://kbfox.github.io/mustplay-site/privacy.html
 
