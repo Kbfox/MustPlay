@@ -23,7 +23,7 @@ MustPlay/
                                 SearchView, PaywallSheet, SettingsView
 OneSignalNotificationServiceExtension/
 worker/                         Cloudflare Worker (TypeScript): IGDB proxy + the Scout agent
-  src/index.ts                  routes: /health, /v4/* (IGDB), /agent (SSE), /qloo/* (debug passthrough)
+  src/index.ts                  routes: /health, /v4/* (IGDB), /agent (SSE), /qloo/* (debug passthrough, only when APP_KEY is set)
   src/agent.ts                  tool loop, system prompt, card rendering, hard rules
   src/qloo.ts                   Qloo client: /search, /v2/insights, /v2/tags, taste analysis
   src/llm.ts                    chat-with-tools adapter: OpenAI-compatible (DeepSeek) or Workers AI
