@@ -15,8 +15,8 @@ A taste agent that picks your next game from your own pile.
 swift, swiftui, swiftdata, cloudflare-workers, typescript, qloo, deepseek, igdb, revenuecat, onesignal
 
 ## Links
-- Live demo (TestFlight public link, iOS 17+): https://testflight.apple.com/join/EK1Wx4Nw
-- App Store (1.1 with Scout, pending review; 1.0 live): https://apps.apple.com/app/id6816116027
+- Live demo (App Store, free, iOS 17+; Scout ships in 1.1.0, live since 14 Oct 2026): https://apps.apple.com/app/id6816116027
+- TestFlight public link (same build): https://testflight.apple.com/join/EK1Wx4Nw
 - Public repo (MIT): https://github.com/Kbfox/MustPlay
 - Privacy policy: https://kbfox.github.io/mustplay-site/privacy.html
 
@@ -96,7 +96,7 @@ MustPlay 1.0 (submitted to the App Store on 26 Sept, live 12 Oct) had no Qloo in
 
 ## Testing instructions for judges
 
-1. Open the TestFlight link on an iPhone (iOS 17+), install MustPlay.
+1. Install MustPlay from the App Store on an iPhone (iOS 17+): https://apps.apple.com/app/id6816116027 (free; Scout is in 1.1.0).
 2. Tap **+** and add a few games you have finished; open each, mark **Completed** and rate 4–5 stars. Then add two or three games you mean to play (they stay in "Want to Play"). Two minutes is enough.
 3. Tap **Ask Scout** on the list and try all four prompts. Free text works too: "something like Hollow Knight but shorter".
 4. Complete any game to see the post-credits pairing.
