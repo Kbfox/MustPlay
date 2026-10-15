@@ -10,6 +10,7 @@ binding = "AI"   # Workers AI for the Scout agent: no API key, billed to the Clo
 LLM_PROVIDER = "openai-compatible"   # workers-ai | openai-compatible (needs LLM_BASE_URL + secret LLM_API_KEY)
 LLM_MODEL = "deepseek-chat"          # Workers AI fallback: @cf/meta/llama-3.3-70b-instruct-fp8-fast
 LLM_BASE_URL = "https://api.deepseek.com"
+LLM_FALLBACK_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"   # used when the primary returns 429/5xx after retries
 QLOO_BASE_URL = "https://hackathon.api.qloo.com"
 
 # Secrets are NOT stored here. Set them with:

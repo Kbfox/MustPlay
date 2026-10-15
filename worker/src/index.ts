@@ -23,8 +23,10 @@ export default {
 
     if (path.startsWith("/v4/")) return igdb.handleProxy(request, env, ctx, path.slice("/v4/".length));
 
-    // Raw passthrough to Qloo for debugging response shapes (app-key protected, GET only).
+    // Raw passthrough to Qloo for debugging response shapes (GET only). Disabled unless APP_KEY is set,
+    // so the hackathon key is never an open proxy; the app itself never calls this route.
     if (path.startsWith("/qloo/") && request.method === "GET") {
+      if (!env.APP_KEY) return text(404, "Not found");
       if (!env.QLOO_API_KEY) return text(503, "QLOO_API_KEY not set");
       const upstream = new URL(path.slice("/qloo".length) + url.search, env.QLOO_BASE_URL);
       const res = await fetch(upstream, { headers: { "X-Api-Key": env.QLOO_API_KEY, Accept: "application/json" } });

@@ -9,6 +9,7 @@ export interface Env {
   LLM_MODEL: string;
   LLM_BASE_URL: string;
   LLM_API_KEY?: string;
+  LLM_FALLBACK_MODEL?: string;
   QLOO_BASE_URL: string;
   QLOO_API_KEY?: string;
 }

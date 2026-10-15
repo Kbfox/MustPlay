@@ -9,8 +9,29 @@ export interface ToolCall { id: string; name: string; arguments: Record<string, 
 export interface ToolSpec { name: string; description: string; parameters: Record<string, unknown> }
 export interface ChatResult { content: string; toolCalls: ToolCall[] }
 
+const FALLBACK_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+// In-isolate circuit breaker: after the primary provider fails, use Workers AI for a minute
+// instead of paying the retry delay on every turn of every request.
+let primaryDownUntil = 0;
+
 export async function chat(env: Env, messages: Message[], tools: ToolSpec[]): Promise<ChatResult> {
-  return env.LLM_PROVIDER === "openai-compatible" ? chatOpenAI(env, messages, tools) : chatWorkersAI(env, messages, tools);
+  if (env.LLM_PROVIDER !== "openai-compatible") return chatWorkersAI(env, messages, tools, env.LLM_MODEL);
+  if (Date.now() < primaryDownUntil) return chatWorkersAI(env, messages, tools, env.LLM_FALLBACK_MODEL || FALLBACK_MODEL);
+  let lastError: unknown;
+  for (const delay of [0, 800, 2000]) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      return await chatOpenAI(env, messages, tools);
+    } catch (e) {
+      lastError = e;
+      const status = e instanceof HttpError ? Number(/-> (\d{3})/.exec(e.message)?.[1]) : 0;
+      if (status && !RETRYABLE.has(status)) throw e; // auth or bad request: retrying will not help
+    }
+  }
+  primaryDownUntil = Date.now() + 60_000;
+  console.warn("primary LLM unavailable, falling back to Workers AI", String((lastError as Error)?.message ?? lastError));
+  return chatWorkersAI(env, messages, tools, env.LLM_FALLBACK_MODEL || FALLBACK_MODEL);
 }
 
 function toOpenAITools(tools: ToolSpec[]) {
@@ -33,8 +54,8 @@ function parseArgs(a: unknown): Record<string, unknown> {
   return {};
 }
 
-async function chatWorkersAI(env: Env, messages: Message[], tools: ToolSpec[]): Promise<ChatResult> {
-  const out = (await env.AI.run(env.LLM_MODEL as any, {
+async function chatWorkersAI(env: Env, messages: Message[], tools: ToolSpec[], model: string): Promise<ChatResult> {
+  const out = (await env.AI.run(model as any, {
     messages: toOpenAIMessages(messages),
     tools: toOpenAITools(tools),
     max_tokens: 1200,
