@@ -45,11 +45,13 @@ Scout lives inside MustPlay, a shipped iOS gaming bucket-list app (App Store, Oc
 1. **Pick from my pile.** Ranks your *own* Want list against your loved games. Not "games like X" from the whole internet — the specific pile you already own, ordered by Qloo affinity, with a reason that names the shared tags and the game it connects to.
 2. **Find me something new.** Taste-grounded discovery with natural-language constraints ("short and cozy, on Switch"). Constraints become Qloo tag filters; platforms and years are filtered locally; results come back with IGDB covers and a one-tap Add to list.
 3. **What's my taste?** Qloo taste analysis over your loved games, rendered as a profile card and a shareable 1080×1920 poster with your top covers.
-4. **Post-credits pick.** Finish a game and Scout pairs it with a film and an album via Qloo's cross-domain recommendations. Hades → *Everything Everywhere All at Once* and Kero Kero Bonito. No other API does this.
+4. **Post-credits pick.** Finish a game and Scout pairs it with a film or series, an artist, and a podcast or book via Qloo's cross-domain recommendations. Hades → *Wolfwalkers*, Kero Kero Bonito and *Retronauts*. No other API does this.
 
 5. **Why not X?** After a pick, one tap asks why another game in your pile lost. Scout re-ranks the pile and answers with the tags X shares with your taste, the tags Qloo does *not* associate with your loved games, and what the winner has that X lacks.
 
-Signals are weighted: 5★ games count more than 4★, a game you're playing counts a little, and the game you just finished dominates the post-credits pairing. Every card shows **"Closest to: Celeste, Hades"**, taken from Qloo's explainability, so the player sees which of their own games drove the suggestion.
+6. **Deep cuts.** Hidden gems in your lane: the same taste signal with Qloo's popularity capped (`filter.popularity.max`), so the cards are games you have probably never heard of, badged "Under the radar".
+
+Signals are weighted: 5★ games count more than 4★, a game you're playing counts a little, and the game you just finished dominates the post-credits pairing. Games you finished but rated 1–2★ are **negative signals**: Scout takes the tags they carry that none of your loved games share and passes them to Qloo as `filter.exclude.tags`, then tells you which game taught it that ("Open World is a tag you bounced off in Elden Ring"). Every card shows **"Closest to: Celeste, Hades"**, taken from Qloo's explainability, so the player sees which of their own games drove the suggestion.
 
 Every reason cites tags returned by Qloo. Scout is free for all users; nothing is gated.
 
@@ -85,7 +87,7 @@ A shipped app got a genuinely new capability in two weeks, with Qloo as the diff
 
 ### What's next
 
-Scout-driven push nudges ("Three games in your pile fit your Celeste streak"), and negative signals (a game you abandoned should push its tags down).
+Scout-driven push nudges ("Three games in your pile fit your Celeste streak") and a "taste twins" mode that compares two players' pools.
 
 ---
 

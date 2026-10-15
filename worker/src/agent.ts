@@ -20,7 +20,7 @@ export interface LibraryGame {
   qloo_id?: string;       // cached from an earlier resolve
 }
 
-export type Intent = "pick" | "discover" | "taste" | "postcredits" | "whynot" | "chat";
+export type Intent = "pick" | "discover" | "deepcuts" | "taste" | "postcredits" | "whynot" | "chat";
 
 export interface AgentRequest {
   intent?: Intent;
@@ -43,6 +43,7 @@ export interface GameCard {
   tags: string[];
   image_url?: string;     // Qloo artwork, used when there's no IGDB cover
   because?: string[];     // loved games this result is closest to, from Qloo explainability (names only)
+  popularity?: number;    // Qloo popularity 0–1 (games are compressed: < 0.92 ≈ under the radar)
 }
 
 export interface CrossCard { type: qloo.EntityType; name: string; year?: number; reason: string; tags: string[]; image_url?: string }
@@ -57,6 +58,9 @@ export type AgentEvent =
   | { type: "error"; text: string }
   | { type: "done" };
 
+/** Qloo game popularity is compressed (median ~0.96 over recommendations); below 0.92 are real deep cuts. */
+const DEEP_CUT_POPULARITY = 0.92;
+
 const SYSTEM = `You are Scout, the taste agent inside MustPlay, an iPhone app where players keep a bucket list of games.
 You have tools backed by Qloo's taste graph (250M+ cultural entities). Use them; never guess what someone likes.
 
@@ -66,10 +70,12 @@ How to work:
 3. Then call qloo_recommend with the loved ids as seeds. For "pick from my pile" use only_library=true so results are ranked against the Want pile. For "find something new" leave it false and exclude the library.
 4. If the player states a mood or genre (cozy, roguelike, horror, relaxing...), call qloo_tags with ONE word at a time and pass the returned ids as tag_ids. For a platform ("on Switch", "PS5") pass platform. For an era pass min_year / max_year. If the tool result says the tag constraint was dropped, say so briefly in the closing line.
 5. qloo_recommend items may carry "because": the loved games each result is closest to, from Qloo's explainability (strongest first, with a share score). You may cite it ("closest to your Celeste"). Never cite a game that is not listed there.
+   If a tool result has "avoided_tags", those tags were excluded because the player bounced off them in the games listed under "bounced" (finished but rated 2★ or less); pile items may carry "avoided" (their own tags from that set). You may say so, naming the bounced game ("its Open World tag is one you bounced off in Elden Ring"). Never call a game bounced unless it is listed there.
+   If an item has tags_unknown, its reason must not name tags; say it fits the same lane as <loved game> from its because list, or prefer another item. Write it as a normal sentence, e.g. "Sits in the same lane as Celeste"; never mention "because" or "list".
 6. Finish by calling show_games (or show_taste / show_crossover). Each reason is one sentence of 8–18 words that names at least one shared tag from the tool results AND one loved game it connects to, e.g. "Metroidvania and difficult, the same lane as Celeste and Hades." Never a single word. Never invent a tag.
 7. Then write one short closing line (under 25 words) spoken to the player: name the mood or thread that ties the picks to a game they loved, in your own words. Never repeat tool notes or describe your steps. No markdown, no lists.
 
-Hard rules: for "find something new" show 3 cards whenever the tools return 3 or more candidates; for "pick from my pile" show exactly 1. Do not recommend a game already completed. If nothing resolves, say so plainly and suggest rating a few finished games first.`;
+Hard rules: for "find something new" and "deep cuts" show 3 cards whenever the tools return 3 or more candidates; for "pick from my pile" show exactly 1. Do not recommend a game already completed. If nothing resolves, say so plainly and suggest rating a few finished games first.`;
 
 const TOOLS: llm.ToolSpec[] = [
   {
@@ -79,7 +85,7 @@ const TOOLS: llm.ToolSpec[] = [
       type: "object",
       properties: {
         names: { type: "array", items: { type: "string" }, description: "Titles to resolve, max 12" },
-        type: { type: "string", enum: ["video_game", "movie", "tv_show", "artist", "book"], description: "Default video_game" },
+        type: { type: "string", enum: ["video_game", "movie", "tv_show", "artist", "book", "podcast"], description: "Default video_game" },
       },
       required: ["names"],
     },
@@ -91,12 +97,13 @@ const TOOLS: llm.ToolSpec[] = [
       type: "object",
       properties: {
         seed_ids: { type: "array", items: { type: "string" }, description: "Qloo entity ids of loved games" },
-        type: { type: "string", enum: ["video_game", "movie", "tv_show", "artist", "book"], description: "What to recommend. Default video_game" },
+        type: { type: "string", enum: ["video_game", "movie", "tv_show", "artist", "book", "podcast"], description: "What to recommend. Default video_game" },
         tag_ids: { type: "array", items: { type: "string" }, description: "Optional Qloo tag ids from qloo_tags to constrain results" },
         platform: { type: "string", description: "Platform the player named, e.g. Switch, PS5, PC, Xbox, iOS" },
         min_year: { type: "integer" },
         max_year: { type: "integer" },
         only_library: { type: "boolean", description: "true = rank the player's Want pile; false = discover beyond the library" },
+        deep_cuts: { type: "boolean", description: "true = only lesser-known titles (hidden gems the player has probably not heard of)" },
         take: { type: "integer", description: "Default 10" },
       },
       required: ["seed_ids"],
@@ -141,7 +148,7 @@ const TOOLS: llm.ToolSpec[] = [
   },
   {
     name: "show_crossover",
-    description: "Show non-game picks (movie / artist / book) that pair with the player's taste.",
+    description: "Show non-game picks (movie / tv_show / artist / book / podcast) that pair with the player's taste. Up to 3.",
     parameters: {
       type: "object",
       properties: {
@@ -149,7 +156,7 @@ const TOOLS: llm.ToolSpec[] = [
           type: "array",
           items: {
             type: "object",
-            properties: { type: { type: "string", enum: ["movie", "tv_show", "artist", "book"] }, name: { type: "string" }, reason: { type: "string" } },
+            properties: { type: { type: "string", enum: ["movie", "tv_show", "artist", "book", "podcast"] }, name: { type: "string" }, reason: { type: "string" } },
             required: ["type", "name", "reason"],
           },
         },
@@ -180,15 +187,44 @@ function arr<T = any>(value: unknown): T[] {
   return [];
 }
 
+/** Finished but didn't click: completed and rated 2★ or less. Their tags become a negative signal. */
+function isBounced(g: LibraryGame): boolean {
+  return g.status === "completed" && typeof g.rating === "number" && g.rating > 0 && g.rating <= 2;
+}
+
+const TAG_STOPWORDS = new Set(["high", "low", "very", "and", "of", "the", "a", "an", "with", "gameplay", "focused", "driven", "based", "style"]);
+
+/** Lowercase word tokens of a tag name, minus filler words ("high difficulty" → ["difficulty"]). */
+export function tagTokens(name: string): string[] {
+  return name.toLowerCase().split(/[^a-z]+/).filter((t) => t && !TAG_STOPWORDS.has(t));
+}
+
+/**
+ * Does a bounced tag mean the same thing as something the player loved? Ids alone miss synonyms: Elden Ring's
+ * "high difficulty" has a different id from Celeste's "Difficult" and Hades' "Challenging"/"Hardcore", yet
+ * avoiding it would push hard games away from someone who loves hard games. Two tokens match when one is a
+ * prefix of the other and the shorter is at least 4 letters ("difficult" ~ "difficulty", "hard" ~ "hardcore").
+ */
+export function tagsConflict(name: string, lovedNames: string[]): boolean {
+  const mine = tagTokens(name);
+  const theirs = lovedNames.flatMap(tagTokens);
+  return mine.some((a) => theirs.some((b) => {
+    const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+    return short.length >= 4 && long.startsWith(short);
+  }));
+}
+
 function libraryBlock(lib: LibraryGame[]): string {
   const line = (g: LibraryGame) =>
     `- ${g.name}${g.year ? ` (${g.year})` : ""} | ${g.status}${g.rating ? ` | ${g.rating}★` : ""}${g.platforms?.length ? ` | ${g.platforms.slice(0, 3).join("/")}` : ""}`;
   const loved = lib.filter((g) => (g.status === "completed" && (g.rating ?? 0) >= 4) || g.status === "playing");
   const want = lib.filter((g) => g.status === "wantToPlay");
-  const other = lib.filter((g) => !loved.includes(g) && !want.includes(g));
+  const bounced = lib.filter(isBounced);
+  const other = lib.filter((g) => !loved.includes(g) && !want.includes(g) && !bounced.includes(g));
   return [
     `Loved (${loved.length}):`, ...loved.map(line),
     `Want to play (${want.length}):`, ...want.map(line),
+    bounced.length ? `Bounced (finished, rated 2★ or less): ${bounced.map((g) => `${g.name} (${g.rating}★)`).join(", ")}` : "",
     other.length ? `Other completed (${other.length}): ${other.map((g) => g.name).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -197,9 +233,10 @@ function intentPrompt(intent: Intent | undefined, focus?: LibraryGame): string {
   switch (intent) {
     case "pick": return "Task: pick ONE game from my Want pile to play next, based on what I loved. One card, then one line.";
     case "discover": return "Task: find up to 3 games NOT in my library that fit my taste. Use any constraint I state.";
+    case "deepcuts": return "Task: find 3 hidden gems NOT in my library that fit my taste, games I have probably not heard of. Use qloo_recommend with deep_cuts=true. Use any constraint I state. Show 3 cards with show_games, titled 'Deep cuts for you'.";
     case "taste": return "Task: run qloo_taste on my loved games and show my taste profile.";
     case "whynot": return `Task: The player asks why ${focus?.name ?? "this game"} wasn't picked. Call qloo_recommend with only_library=true, then explain ${focus?.name ?? "the game"}'s rank: which tags it shares with the taste pool (shared_tags), which of its tags Qloo does not associate with the loved games (other_tags), and what the top pick has that ${focus?.name ?? "it"} lacks. Call show_games with ${focus?.name ?? "the game"} as the single pick whose reason is that explanation (2 sentences max), then one closing line. Never invent tags.`;
-    case "postcredits": return `Task: I just finished ${focus?.name ?? "a game"}. Using it (and my other loved games) as seeds, recommend ONE movie and ONE album artist or book that pair with it. Use show_crossover.`;
+    case "postcredits": return `Task: I just finished ${focus?.name ?? "a game"}. Using it (and my other loved games) as seeds, recommend ONE film or series (movie or tv_show), ONE album artist, and ONE podcast or book that pair with it. Use show_crossover (up to 3 cards).`;
     default: return "";
   }
 }
@@ -280,12 +317,36 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
     await emit({ type: "message", text: "Ask about a game in your Want pile." });
     return;
   }
-  if ((req.intent === "pick" || req.intent === "taste" || req.intent === "discover" || req.intent === "whynot") && !loved.length) {
+  if ((req.intent === "pick" || req.intent === "taste" || req.intent === "discover" || req.intent === "deepcuts" || req.intent === "whynot") && !loved.length) {
     await emit({ type: "message", text: "I don't know your taste yet. Mark a game as Playing, or rate a finished one 4 stars or more, then ask again." });
     return;
   }
 
   if (!qloo.hasKey(env)) await emit({ type: "status", text: "Qloo key not set — using the built-in sample taste graph" });
+
+  // Negative signal: tags on games the player finished but disliked that none of their loved games carry.
+  const bounced = lib.filter(isBounced);
+  const avoid = new Map<string, string>();   // tag id → display name
+  if (bounced.length && loved.length && (req.intent === "pick" || req.intent === "discover" || req.intent === "deepcuts" || req.intent === "whynot")) {
+    const gameTag = (id: string) => qloo.GAME_TAG_TYPES.some((t) => id.startsWith(`${t}:`));
+    const lovedTags = new Set<string>();
+    const lovedTagNames: string[] = [];
+    for (const g of loved) { const e = await hydrate(g.name); for (const t of e?.tags ?? []) { lovedTags.add(t.id); lovedTagNames.push(t.name); } }
+    const counts = new Map<string, { name: string; n: number }>();
+    for (const g of bounced) {
+      const e = await hydrate(g.name);
+      for (const t of e?.tags ?? []) {
+        if (!gameTag(t.id) || lovedTags.has(t.id) || tagsConflict(t.name, lovedTagNames)) continue;
+        const c = counts.get(t.id) ?? { name: t.name, n: 0 };
+        c.n++;
+        counts.set(t.id, c);
+      }
+    }
+    for (const [id, c] of [...counts.entries()].sort((x, y) => y[1].n - x[1].n).slice(0, 6)) avoid.set(id, c.name);
+    if (avoid.size) await emit({ type: "status", text: `Avoiding tags you bounced off: ${[...avoid.values()].join(", ")}` });
+  }
+  const bouncedInfo = bounced.map((g) => ({ name: g.name, rating: g.rating }));
+  const avoidNames = new Set([...avoid.values()].map((n) => n.toLowerCase()));   // name-level match for near-duplicate ids
 
   let shown = false;
   let spoke = false;
@@ -339,18 +400,40 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
               break;
             }
             const weighted = new Set(seeds.map((x) => x.weight)).size >= 2;
-            await emit({ type: "status", text: onlyLibrary ? (weighted ? "Ranking your pile against your taste (5★ games weigh more)…" : "Ranking your pile against your taste…") : `Asking Qloo's taste graph for ${type.replace("_", " ")}s…` });
+            // Deep cuts are enforced here for the deepcuts intent, whatever the model passes.
+            const deepCuts = !onlyLibrary && type === "video_game" && (req.intent === "deepcuts" || a.deep_cuts === true || a.deep_cuts === "true");
+            await emit({ type: "status", text: onlyLibrary
+              ? (weighted ? "Ranking your pile against your taste (5★ games weigh more)…" : "Ranking your pile against your taste…")
+              : deepCuts ? "Digging for hidden gems in your lane…" : `Asking Qloo's taste graph for ${type.replace("_", " ")}s…` });
             const take = onlyLibrary ? 40 : (a.take ?? 10);
             // Discover: never return the player's own games (library titles are also removed by name below).
             const excludeIds = !onlyLibrary && type === "video_game" ? lib.map(entityIdOf).filter((x): x is string => !!x) : undefined;
-            const { items, tagMode } = await qloo.recommend(env, {
-              seedIds, seeds, excludeIds, type, tagIds: a.tag_ids ? arr<string>(a.tag_ids) : undefined,
+            const excludeTagIds = type === "video_game" && avoid.size ? [...avoid.keys()] : undefined;
+            const { items: rawItems, tagMode, excludeTagsDropped } = await qloo.recommend(env, {
+              seedIds, seeds, excludeIds, excludeTagIds, popularityMax: deepCuts ? DEEP_CUT_POPULARITY : undefined, type,
+              tagIds: a.tag_ids ? arr<string>(a.tag_ids) : undefined,
               platform: typeof a.platform === "string" ? a.platform : undefined, minYear: a.min_year, maxYear: a.max_year, take,
             });
+            // Belt and braces: Qloo's popularity filter should already do this.
+            let items = deepCuts ? rawItems.filter((e) => typeof e.popularity !== "number" || e.popularity < DEEP_CUT_POPULARITY) : rawItems;
+            // filter.exclude.tags works on ids, and Qloo has near-duplicate ids ("Dark fantasy" vs "Dark Fantasy").
+            // Drop results that carry an avoided tag by name too, unless that leaves fewer than 3.
+            let nearDupKept = false;
+            if (excludeTagIds && !excludeTagsDropped) {
+              const clean = items.filter((e) => !e.tags.some((t) => avoidNames.has(t.name.toLowerCase())));
+              if (clean.length >= 3 || clean.length === items.length) items = clean;
+              else nearDupKept = true;
+            }
+            const avoidInfo = excludeTagIds
+              ? { avoided_tags: excludeTagsDropped ? [] : [...avoid.values()], bounced: bouncedInfo }
+              : {};
             for (const e of items) seen.set(key(e.name), e);
             const libNames = new Set(lib.map((g) => key(g.name)));
             let filtered = items;
             let note = tagMode === "filter" ? "tags applied as a hard filter" : tagMode === "signal" ? "tags did not match as a filter; applied as a soft bias instead" : tagMode === "dropped" ? "tags matched nothing and were dropped" : "no tag constraint";
+            if (excludeTagsDropped) note += "; bounce tags dropped (excluding them left nothing)";
+            if (nearDupKept) note += "; near-duplicate bounce tags kept";
+            if (deepCuts) note += "; deep cuts only (lesser-known titles)";
             if (type === "video_game") {
               if (onlyLibrary) {
                 const wantGames = lib.filter((g) => g.status === "wantToPlay");
@@ -412,23 +495,32 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
                 if (Object.keys(resolvedMap).length) await emit({ type: "resolved", map: resolvedMap });
                 result = {
                   note,
+                  ...avoidInfo,
                   items: filtered.slice(0, 12).map((e, i) => ({
                     rank: i + 1, name: e.name, year: e.year, affinity: e.affinity, platforms: e.platforms?.slice(0, 5),
                     tags: e.tags.map((t) => t.name).slice(0, 7),
                     shared_tags: e.tags.filter((t) => tagPool.has(t.id)).map((t) => t.name).slice(0, 6),
                     other_tags: e.tags.filter((t) => !tagPool.has(t.id)).map((t) => t.name).slice(0, 4),
                     because: becauseText(e),
+                    ...(avoid.size ? { avoided: e.tags.filter((t) => avoid.has(t.id) || avoidNames.has(t.name.toLowerCase())).map((t) => t.name) } : {}),
                   })),
                 };
                 break;
               } else {
                 filtered = items.filter((e) => !libNames.has(key(e.name)));
                 note += "; library titles removed";
+                // Tag-less entities can't be grounded: keep them (deep cuts are sparse) but last, and flagged.
+                filtered = [...filtered.filter((e) => e.tags.length), ...filtered.filter((e) => !e.tags.length)];
               }
             }
             result = {
               note,
-              items: filtered.slice(0, 12).map((e) => ({ name: e.name, year: e.year, affinity: e.affinity, platforms: e.platforms?.slice(0, 5), tags: e.tags.map((t) => t.name).slice(0, 7), because: becauseText(e) })),
+              ...avoidInfo,
+              items: filtered.slice(0, 12).map((e) => ({
+                name: e.name, year: e.year, affinity: e.affinity, popularity: e.popularity, platforms: e.platforms?.slice(0, 5),
+                tags: e.tags.map((t) => t.name).slice(0, 7), because: becauseText(e),
+                ...(type === "video_game" && !onlyLibrary && !e.tags.length ? { tags_unknown: true } : {}),
+              })),
             };
             break;
           }
@@ -463,12 +555,18 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
               if (g?.status === "completed") { rejected.push(`${p.name} is already completed`); return false; }
               if (req.intent === "pick" && g?.status !== "wantToPlay") { rejected.push(`${p.name} is not in the Want pile`); return false; }
               if (req.intent === "whynot" && (!g || !focus || g.igdb_id !== focus.igdb_id)) { rejected.push(`${p.name} is not the game being asked about`); return false; }
+              if (req.intent === "deepcuts") {
+                if (g) { rejected.push(`${p.name} is already in the library`); return false; }
+                const e = seen.get(key(p.name));
+                if (e && typeof e.popularity === "number" && e.popularity >= DEEP_CUT_POPULARITY) { rejected.push(`${p.name} is too well known for a deep cut`); return false; }
+              }
               return true;
             }).slice(0, req.intent === "pick" || req.intent === "whynot" ? 1 : 5);
             if (!accepted.length) {
               const wantNames = lib.filter((g) => g.status === "wantToPlay").map((g) => g.name);
               const hint = req.intent === "pick" ? ` Choose exactly one of: ${wantNames.join(", ")}`
                 : req.intent === "whynot" ? ` Show exactly one card: ${focus?.name}, with the explanation as its reason.`
+                : req.intent === "deepcuts" ? " Use names from the deep_cuts=true qloo_recommend results that are not in the library."
                 : " Use names from qloo_recommend results that are not in the library.";
               result = { error: `no valid picks: ${rejected.join("; ")}.` + hint };
               break;
@@ -495,13 +593,15 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
                 tags: e?.tags.map((t) => t.name).slice(0, 4) ?? [],
                 image_url: e?.image_url,
                 because: becauseNames(e),
+                popularity: typeof e?.popularity === "number" ? Number(e.popularity.toFixed(3)) : undefined,
               });
             }
             if (!cards.length) {
               result = { error: "no picks given; call show_games with names from the tool results" };
               break;
             }
-            await emit({ type: "games", title: req.intent === "whynot" && focus ? `Why not ${focus.name}?` : a.title, items: cards });
+            const title = req.intent === "whynot" && focus ? `Why not ${focus.name}?` : req.intent === "deepcuts" ? "Deep cuts for you" : a.title;
+            await emit({ type: "games", title, items: cards });
             shown = true;
             result = { shown: cards.map((c) => c.name), ...(rejected.length ? { rejected } : {}) };
             break;
@@ -521,7 +621,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             break;
           }
           case "show_crossover": {
-            const picks = arr<{ type: qloo.EntityType; name: string; reason: string }>(a.picks).filter((p) => p && typeof p.name === "string").slice(0, 4);
+            const picks = arr<{ type: qloo.EntityType; name: string; reason: string }>(a.picks).filter((p) => p && typeof p.name === "string").slice(0, 3);
             if (!picks.length) {
               result = { error: "no picks given" };
               break;

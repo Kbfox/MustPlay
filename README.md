@@ -90,10 +90,14 @@ the **Ask Scout** card on the list and fires automatically after you complete a 
 | What's my taste? | profile card + shareable poster | `/v2/insights?filter.type=urn:tag` (taste analysis) |
 | Post-credits pick | a film and an album that pair with the game you just finished | `/v2/insights` cross-domain (movie / artist / book) |
 | Why not X? | follow-up after a pick: explains where another Want game ranked and which of its tags Qloo does not tie to your taste | `/v2/insights` (pile ranking + explainability) |
+| Deep cuts | hidden gems in your lane that you have probably not heard of | `/v2/insights` with `filter.popularity.max=0.92` |
 
 Seeds are weighted: a 5★ game counts more than a 4★ one, a game you're playing counts a little, and the game
 you just finished dominates the post-credits pairing (`POST /v2/insights` with per-seed weights). Every card
 carries `because`, the loved games Qloo says it is closest to, taken from `feature.explainability`.
+Games you finished but rated 1–2★ are negative signals: the tags they carry that none of your loved games
+share go into `filter.exclude.tags`, so Scout steers around them and can say which game taught it that.
+Post-credits pairs the game you just finished with a film or series, an artist, and a podcast or book.
 
 ### Architecture
 
@@ -148,7 +152,7 @@ curl -N -X POST https://mustplay-igdb.kbfoxtk.workers.dev/agent \
 ```
 
 `intent` is one of `pick`, `discover`, `taste`, `postcredits` (add `"focus_igdb_id"` for the game just
-finished), `whynot` (`focus_igdb_id` = the Want game you're asking about) or `chat` for free text such as `"something like Hollow Knight but shorter"`. Typical output:
+finished), `whynot` (`focus_igdb_id` = the Want game you're asking about), `deepcuts` or `chat` for free text such as `"something like Hollow Knight but shorter"`. Typical output:
 
 ```
 data: {"type":"status","text":"Looking up 2 titles on Qloo…"}

@@ -22,13 +22,14 @@
 import { Env, HttpError } from "./env";
 import * as fixture from "./fixture";
 
-export type EntityType = "video_game" | "movie" | "tv_show" | "artist" | "book";
+export type EntityType = "video_game" | "movie" | "tv_show" | "artist" | "book" | "podcast";
 export const ENTITY_URN: Record<EntityType, string> = {
   video_game: "urn:entity:videogame",
   movie: "urn:entity:movie",
   tv_show: "urn:entity:tv_show",
   artist: "urn:entity:artist",
   book: "urn:entity:book",
+  podcast: "urn:entity:podcast",
 };
 
 export interface QlooTag { id: string; name: string; type?: string }
@@ -51,7 +52,7 @@ export interface WeightedSeed { id: string; weight: number }
 export interface TasteTag extends QlooTag { affinity: number }
 
 /** Tag types that describe how a game plays and feels; used for taste analysis and constraint lookups. */
-const GAME_TAG_TYPES = [
+export const GAME_TAG_TYPES = [
   "urn:tag:category:qloo",
   "urn:tag:gameplay_type:qloo",
   "urn:tag:genre:qloo",
@@ -197,6 +198,8 @@ export interface RecommendInput {
   seedIds: string[];      // unweighted fallback (GET)
   seeds?: WeightedSeed[]; // when given, POST with per-seed weights
   excludeIds?: string[];  // entity ids never to return (the player's library)
+  excludeTagIds?: string[]; // filter.exclude.tags: tags the player bounced off (retried without if nothing comes back)
+  popularityMax?: number; // filter.popularity.max: deep cuts (game popularity is compressed; 0.92 ≈ bottom quartile)
   type: EntityType;
   tagIds?: string[];
   platform?: string;      // free text, matched against properties.platforms ("Switch", "PS5", "PC")
@@ -209,6 +212,8 @@ export interface RecommendResult {
   items: QlooEntity[];
   /** How the tag constraint was applied, so the agent can say so honestly. */
   tagMode: "filter" | "signal" | "dropped" | "none";
+  /** True when the bounce-tag exclusion emptied the results and the call was retried without it. */
+  excludeTagsDropped?: boolean;
 }
 
 const PLATFORM_ALIASES: Record<string, string[]> = {
@@ -243,50 +248,65 @@ export async function recommend(env: Env, input: RecommendInput): Promise<Recomm
   const exclude = (input.excludeIds ?? []).filter(Boolean);
   const take = Math.min(50, Math.max(20, (input.take ?? 10) * 3)); // over-fetch: platform/year filtered locally
   const hasSeeds = seeds.length > 0 || input.seedIds.length > 0;
-  const base: Record<string, string | number | undefined> = {
-    "filter.type": ENTITY_URN[input.type],
-    "signal.interests.entities": input.seedIds.length ? input.seedIds.join(",") : undefined,
-    "filter.exclude.entities": exclude.length ? exclude.join(",") : undefined,
-    "feature.explainability": "true",
-    take,
-  };
-  // Weighted seeds go over POST; the GET form can't carry weights.
-  const insights = (extra: Record<string, string>): Promise<any> =>
-    seeds.length
-      ? post(env, "/v2/insights", {
-          "filter.type": ENTITY_URN[input.type],
-          "signal.interests.entities": seeds.map((s) => ({ id: s.id, weight: s.weight })),
-          "filter.exclude.entities": exclude.length ? exclude.join(",") : undefined,
-          "feature.explainability": true,
-          take,
-          ...extra,
-        })
-      : get(env, "/v2/insights", { ...base, ...extra });
-  const parse = (data: any): QlooEntity[] =>
-    ((data?.results?.entities ?? []) as any[]).map((e) => normalizeEntity(e, input.type)).filter((e) => e.entity_id && e.name);
+  const excludeTags = (input.excludeTagIds ?? []).filter(Boolean);
+  const popMax = typeof input.popularityMax === "number" ? input.popularityMax : undefined;
 
-  let items: QlooEntity[] = [];
-  let tagMode: RecommendResult["tagMode"] = "none";
-  const tagIds = (input.tagIds ?? []).filter(Boolean);
-  if (tagIds.length) {
-    items = parse(await insights({ "filter.tags": tagIds.join(",") }));
-    tagMode = "filter";
-    if (!items.length) {
-      // Hard filter matched nothing (tag may not apply to this domain): bias instead of filter.
-      items = parse(await insights({ "signal.interests.tags": tagIds.join(",") }));
-      tagMode = items.length ? "signal" : "dropped";
+  const attempt = async (withExcludeTags: boolean): Promise<{ items: QlooEntity[]; tagMode: RecommendResult["tagMode"] }> => {
+    const common: Record<string, string | number | undefined> = {
+      "filter.exclude.entities": exclude.length ? exclude.join(",") : undefined,
+      "filter.exclude.tags": withExcludeTags && excludeTags.length ? excludeTags.join(",") : undefined,
+      "filter.popularity.max": popMax,
+      take,
+    };
+    const base: Record<string, string | number | undefined> = {
+      ...common,
+      "filter.type": ENTITY_URN[input.type],
+      "signal.interests.entities": input.seedIds.length ? input.seedIds.join(",") : undefined,
+      "feature.explainability": "true",
+    };
+    // Weighted seeds go over POST; the GET form can't carry weights.
+    const insights = (extra: Record<string, string>): Promise<any> =>
+      seeds.length
+        ? post(env, "/v2/insights", {
+            ...common,
+            "filter.type": ENTITY_URN[input.type],
+            "signal.interests.entities": seeds.map((s) => ({ id: s.id, weight: s.weight })),
+            "feature.explainability": true,
+            ...extra,
+          })
+        : get(env, "/v2/insights", { ...base, ...extra });
+    const parse = (data: any): QlooEntity[] =>
+      ((data?.results?.entities ?? []) as any[]).map((e) => normalizeEntity(e, input.type)).filter((e) => e.entity_id && e.name);
+
+    let items: QlooEntity[] = [];
+    let tagMode: RecommendResult["tagMode"] = "none";
+    const tagIds = (input.tagIds ?? []).filter(Boolean);
+    if (tagIds.length) {
+      items = parse(await insights({ "filter.tags": tagIds.join(",") }));
+      tagMode = "filter";
+      if (!items.length) {
+        // Hard filter matched nothing (tag may not apply to this domain): bias instead of filter.
+        items = parse(await insights({ "signal.interests.tags": tagIds.join(",") }));
+        tagMode = items.length ? "signal" : "dropped";
+      }
     }
+    if (!items.length && hasSeeds) items = parse(await insights({}));
+    return { items, tagMode };
+  };
+
+  let { items, tagMode } = await attempt(true);
+  let excludeTagsDropped = false;
+  if (!items.length && excludeTags.length) {
+    ({ items, tagMode } = await attempt(false));
+    excludeTagsDropped = true;
   }
-  if (!items.length) {
-    if (!hasSeeds) return { items: [], tagMode };
-    items = parse(await insights({}));
-  }
+  if (!items.length) return { items: [], tagMode, ...(excludeTagsDropped ? { excludeTagsDropped } : {}) };
 
   const filtered = items
     .filter((e) => platformMatches(e, input.platform))
     .filter((e) => (input.minYear && e.year ? e.year >= input.minYear : true))
     .filter((e) => (input.maxYear && e.year ? e.year <= input.maxYear : true));
-  return { items: filtered.slice(0, input.take ?? 10), tagMode };
+  return { items: filtered.slice(0, input.take ?? 10), tagMode, ...(excludeTagsDropped ? { excludeTagsDropped } : {}) };
 }
 
 /**
