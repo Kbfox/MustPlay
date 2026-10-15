@@ -137,6 +137,15 @@ struct BucketListView: View {
                 Button("Add a game", action: onAdd)
                     .buttonStyle(.borderedProminent)
             }
+            if filter == nil {
+                // Fresh installs reach Scout's quick start from here; the list card needs at least one game.
+                Button {
+                    showScout = true
+                } label: {
+                    Label("Ask Scout", systemImage: "sparkles")
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 

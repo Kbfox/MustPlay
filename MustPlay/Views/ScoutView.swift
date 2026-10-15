@@ -29,9 +29,9 @@ enum ScoutItem: Identifiable {
     }
 }
 
-/// The four things Scout is good at. Free text works too.
+/// The things Scout is good at. Free text works too.
 enum ScoutPrompt: String, CaseIterable, Identifiable {
-    case pick, discover, taste, postcredits
+    case pick, discover, deepcuts, taste, postcredits
 
     var id: String { rawValue }
 
@@ -39,6 +39,7 @@ enum ScoutPrompt: String, CaseIterable, Identifiable {
         switch self {
         case .pick: "Pick from my pile"
         case .discover: "Find me something new"
+        case .deepcuts: "Deep cuts"
         case .taste: "What's my taste?"
         case .postcredits: "Pair with a film"
         }
@@ -48,8 +49,9 @@ enum ScoutPrompt: String, CaseIterable, Identifiable {
         switch self {
         case .pick: "Rank my Want list against what I loved"
         case .discover: "Games I'd never search for"
+        case .deepcuts: "Hidden gems that fit your taste"
         case .taste: "My profile, from what I've finished"
-        case .postcredits: "A film or album after my last finish"
+        case .postcredits: "A film, album or podcast after my last finish"
         }
     }
 
@@ -57,6 +59,7 @@ enum ScoutPrompt: String, CaseIterable, Identifiable {
         switch self {
         case .pick: "list.star"
         case .discover: "binoculars.fill"
+        case .deepcuts: "sparkles"
         case .taste: "person.crop.circle.badge.checkmark"
         case .postcredits: "film.stack"
         }
@@ -66,6 +69,7 @@ enum ScoutPrompt: String, CaseIterable, Identifiable {
         switch self {
         case .pick: .pick
         case .discover: .discover
+        case .deepcuts: .deepcuts
         case .taste: .taste
         case .postcredits: .postcredits
         }
@@ -75,6 +79,7 @@ enum ScoutPrompt: String, CaseIterable, Identifiable {
         switch self {
         case .pick: "What should I play next from my list?"
         case .discover: "Find me something new I'd love."
+        case .deepcuts: "Find me a hidden gem I haven't heard of."
         case .taste: "What's my taste in games?"
         case .postcredits: "What should I watch or listen to after the game I just finished?"
         }
@@ -243,6 +248,7 @@ struct ScoutView: View {
     @State private var addedIDs: Set<Int> = []
     @State private var addCount = 0
     @State private var tasteToShare: TasteShare?
+    @State private var showQuickStart = false
 
     private struct TasteShare: Identifiable {
         let summary: String
@@ -313,6 +319,9 @@ struct ScoutView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallSheet()
         }
+        .sheet(isPresented: $showQuickStart) {
+            SearchView(mode: .loved(limit: 3))
+        }
         .sheet(item: $tasteToShare) { share in
             TasteShareSheet(summary: share.summary, tags: share.tags, coverURLs: lovedCoverURLs)
         }
@@ -332,11 +341,24 @@ struct ScoutView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Scout knows what you love.")
                     .font(.title2.bold())
-                Text(lovedCount >= 2
-                     ? "Grounded in \(lovedCount) games you finished or are playing, cross-checked against Qloo's taste graph of 250M+ titles, films and albums."
-                     : "Rate a couple of finished games first. Scout reads your taste from what you loved, then asks Qloo's taste graph what fits.")
+                Text((lovedCount >= 2
+                      ? "Grounded in \(lovedCount) games you finished or are playing, cross-checked against Qloo's taste graph of 250M+ titles, films and albums."
+                      : "Rate a couple of finished games first. Scout reads your taste from what you loved, then asks Qloo's taste graph what fits.")
+                     + " Rate the ones you bounced off 1–2★ and Scout learns what to avoid.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            }
+            if lovedCount == 0 {
+                Button {
+                    showQuickStart = true
+                } label: {
+                    Label("Tell Scout three games you loved", systemImage: "star.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 14))
             }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(ScoutPrompt.allCases) { prompt in
@@ -383,7 +405,7 @@ struct ScoutView: View {
     private func isAvailable(_ prompt: ScoutPrompt) -> Bool {
         switch prompt {
         case .pick: lovedCount > 0 && wantCount > 0
-        case .discover, .taste: lovedCount > 0
+        case .discover, .deepcuts, .taste: lovedCount > 0
         case .postcredits: lastCompleted != nil
         }
     }
@@ -406,10 +428,10 @@ struct ScoutView: View {
         switch intent {
         case .pick where wantCount == 0, .whynot where wantCount == 0:
             "Your Want pile is empty. Add a few games you mean to play and I'll rank them against what you loved."
-        case .pick, .whynot, .taste, .discover:
+        case .pick, .whynot, .taste, .discover, .deepcuts:
             lovedCount == 0 ? "I don't know your taste yet. Mark a game as Playing, or rate a finished one 4 stars or more, then ask again." : nil
         case .postcredits where lastCompleted == nil:
-            "Finish a game first and I'll pair it with a film or an album."
+            "Finish a game first and I'll pair it with a film, an album or a podcast."
         default:
             nil
         }
@@ -484,6 +506,14 @@ struct ScoutView: View {
                 Text(card.name)
                     .font(.headline)
                     .lineLimit(2)
+                if card.isUnderTheRadar {
+                    Label("Under the radar", systemImage: "eye.slash")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color(.tertiarySystemFill), in: Capsule())
+                }
                 if let because = card.because, !because.isEmpty {
                     Text("Closest to: \(because.joined(separator: ", "))")
                         .font(.caption)

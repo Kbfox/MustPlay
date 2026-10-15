@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Wire format (mirrors worker/src/agent.ts)
 
 enum ScoutIntent: String, Codable {
-    case pick, discover, taste, postcredits, whynot, chat
+    case pick, discover, deepcuts, taste, postcredits, whynot, chat
 }
 
 struct ScoutRequest: Encodable {
@@ -41,10 +41,14 @@ struct ScoutGameCard: Decodable, Identifiable, Hashable {
     let image_url: String?
     /// Loved games this result is closest to (Qloo explainability), strongest first. Absent on older Worker responses.
     let because: [String]?
+    /// Qloo popularity percentile, 0–1. Absent on older Worker responses.
+    let popularity: Double?
 
     var id: String { "\(igdb_id ?? 0)-\(name)" }
     /// IGDB cover when we have one, else Qloo's artwork.
     var coverURL: URL? { IGDBImage.url(imageID: cover_image_id, size: .coverBig) ?? image_url.flatMap(URL.init(string:)) }
+    /// Below the 92nd popularity percentile counts as a find rather than a household name.
+    var isUnderTheRadar: Bool { popularity.map { $0 < 0.92 } ?? false }
 }
 
 struct ScoutTasteTag: Decodable, Hashable {
@@ -69,6 +73,7 @@ struct ScoutCrossCard: Decodable, Identifiable, Hashable {
         case "tv_show": "tv"
         case "artist": "music.note"
         case "book": "book"
+        case "podcast": "mic"
         default: "sparkles"
         }
     }
@@ -79,6 +84,7 @@ struct ScoutCrossCard: Decodable, Identifiable, Hashable {
         case "tv_show": "Series"
         case "artist": "Music"
         case "book": "Book"
+        case "podcast": "Podcast"
         default: type.capitalized
         }
     }

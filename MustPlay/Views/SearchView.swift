@@ -2,6 +2,15 @@ import SwiftUI
 import SwiftData
 
 struct SearchView: View {
+    enum Mode: Equatable {
+        /// The normal path: results go onto the Want pile.
+        case add
+        /// Scout's quick start: results go in as finished 5★ games; closes after `limit` picks.
+        case loved(limit: Int)
+    }
+
+    var mode: Mode = .add
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(PurchaseManager.self) private var purchases
@@ -14,13 +23,14 @@ struct SearchView: View {
     @State private var showPaywall = false
     @State private var searchTask: Task<Void, Never>?
     @State private var addCount = 0
+    @State private var lovedPicks = 0
 
     private var savedIDs: Set<Int> { Set(games.map(\.igdbID)) }
 
     var body: some View {
         NavigationStack {
             List(results) { game in
-                SearchResultRow(game: game, isSaved: savedIDs.contains(game.id)) {
+                SearchResultRow(game: game, isSaved: savedIDs.contains(game.id), isBlocked: isBlocked(game)) {
                     add(game)
                 }
             }
@@ -34,11 +44,11 @@ struct SearchView: View {
             .onChange(of: query) { _, newValue in
                 scheduleSearch(newValue)
             }
-            .navigationTitle("Add to your list")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(doneTitle) { dismiss() }
                 }
             }
         }
@@ -46,6 +56,26 @@ struct SearchView: View {
             PaywallSheet()
         }
         .sensoryFeedback(.success, trigger: addCount)
+    }
+
+    /// Quick start records finished games, so an unreleased one can't be picked. Same test as `BucketGame.isUpcoming`.
+    private func isBlocked(_ game: IGDBGame) -> Bool {
+        guard case .loved = mode, let date = game.releaseDate else { return false }
+        return date > .now
+    }
+
+    private var navigationTitle: String {
+        switch mode {
+        case .add: "Add to your list"
+        case .loved: "Games you loved"
+        }
+    }
+
+    private var doneTitle: String {
+        switch mode {
+        case .add: "Done"
+        case .loved(let limit): lovedPicks == 0 ? "Cancel" : "Done (\(lovedPicks)/\(limit))"
+        }
     }
 
     @ViewBuilder
@@ -60,11 +90,19 @@ struct SearchView: View {
                 description: Text(errorMessage)
             )
         } else if results.isEmpty && trimmed.count < 2 {
-            ContentUnavailableView(
-                "Find your next game",
-                systemImage: "magnifyingglass",
-                description: Text("Search by title. Game data from IGDB.")
-            )
+            if case .loved(let limit) = mode {
+                ContentUnavailableView(
+                    "Pick up to \(limit) favourites",
+                    systemImage: "star",
+                    description: Text("Search games you've finished and loved. They go on your list as Completed, 5 stars.")
+                )
+            } else {
+                ContentUnavailableView(
+                    "Find your next game",
+                    systemImage: "magnifyingglass",
+                    description: Text("Search by title. Game data from IGDB.")
+                )
+            }
         } else if results.isEmpty {
             ContentUnavailableView.search(text: query)
         }
@@ -110,6 +148,18 @@ struct SearchView: View {
         let isFirstGame = games.isEmpty
         let nextOrder = (games.map(\.sortOrder).max() ?? -1) + 1
         let bucket = BucketGame(from: game, sortOrder: nextOrder)
+
+        if case .loved(let limit) = mode {
+            guard !bucket.isUpcoming else { return }
+            bucket.status = .completed   // also stamps completedAt
+            bucket.rating = 5
+            context.insert(bucket)
+            addCount += 1
+            lovedPicks += 1
+            if lovedPicks >= limit { dismiss() }
+            return
+        }
+
         context.insert(bucket)
         addCount += 1
 
@@ -124,6 +174,7 @@ struct SearchView: View {
 private struct SearchResultRow: View {
     let game: IGDBGame
     let isSaved: Bool
+    var isBlocked = false
     let onAdd: () -> Void
 
     var body: some View {
@@ -152,11 +203,11 @@ private struct SearchResultRow: View {
 
             Image(systemName: isSaved ? "checkmark.circle.fill" : "plus.circle.fill")
                 .font(.title2)
-                .foregroundStyle(isSaved ? Color.green : Color.accentColor)
+                .foregroundStyle(isSaved ? Color.green : isBlocked ? Color.secondary.opacity(0.4) : Color.accentColor)
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            if !isSaved { onAdd() }
+            if !isSaved && !isBlocked { onAdd() }
         }
     }
 }
