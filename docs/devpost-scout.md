@@ -16,6 +16,7 @@ swift, swiftui, swiftdata, cloudflare-workers, typescript, qloo, deepseek, igdb,
 
 ## Links
 - Live demo (App Store, free, iOS 17+; Scout ships in 1.1.0, live since 14 Oct 2026): https://apps.apple.com/app/id6816116027
+- Web demo (no iPhone needed, same agent): https://kbfox.github.io/mustplay-site/scout.html
 - Public repo (MIT): https://github.com/Kbfox/MustPlay
 - Privacy policy: https://kbfox.github.io/mustplay-site/privacy.html
 
@@ -95,6 +96,7 @@ MustPlay 1.0 (submitted to the App Store on 26 Sept, live 12 Oct) had no Qloo in
 
 ## Testing instructions for judges
 
+0. No iPhone? Open the web demo at https://kbfox.github.io/mustplay-site/scout.html — it runs the same agent with a list you build in the browser.
 1. Install MustPlay from the App Store on an iPhone (iOS 17+): https://apps.apple.com/app/id6816116027 (free; Scout is in 1.1.0).
 2. Tap **+** and add a few games you have finished; open each, mark **Completed** and rate 4–5 stars. Then add two or three games you mean to play (they stay in "Want to Play"). Two minutes is enough.
 3. Tap **Ask Scout** on the list and try all four prompts. Free text works too: "something like Hollow Knight but shorter".

@@ -211,6 +211,15 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const trustCache = qloo.hasKey(env);
   for (const g of lib) if (g.qloo_id && trustCache && UUID.test(g.qloo_id)) resolved.set(key(g.name), { entity_id: g.qloo_id, name: g.name, type: "video_game", tags: [] });
+  // A cached id is a stub with no tags. Fill it in from /search when tags are needed (ranking, cards).
+  const hydrate = async (name: string): Promise<qloo.QlooEntity | undefined> => {
+    const k = key(name);
+    const cur = resolved.get(k);
+    if (cur && cur.tags.length) return cur;
+    const full = await qloo.resolve(env, name, "video_game");
+    if (full) { resolved.set(k, full); return full; }
+    return cur;
+  };
   const seen = new Map<string, qloo.QlooEntity>();       // every entity returned by recommend, by lower name
   const focus = req.focus_igdb_id ? lib.find((g) => g.igdb_id === req.focus_igdb_id) : undefined;
 
@@ -239,6 +248,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
   let shown = false;
   let spoke = false;
   let tasteDone = false;
+  let lastTaste: { name: string; affinity: number }[] = [];
   for (let step = 0; step < 7; step++) {
     const res = await llm.chat(env, messages, TOOLS);
     if (!res.toolCalls.length) {
@@ -259,7 +269,9 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
           case "qloo_resolve": {
             const type = (a.type ?? "video_game") as qloo.EntityType;
             const names: string[] = arr<string>(a.names).slice(0, 12);
-            await emit({ type: "status", text: `Looking up ${names.length} title${names.length === 1 ? "" : "s"} on Qloo…` });
+            const fresh = names.filter((n) => !resolved.has(key(n)));
+            if (fresh.length > 0) await emit({ type: "status", text: `Looking up ${fresh.length} title${fresh.length === 1 ? "" : "s"} on Qloo…` });
+            else await emit({ type: "status", text: `Using cached Qloo matches for ${names.length} title${names.length === 1 ? "" : "s"}` });
             const out: { name: string; entity_id: string | null; tags?: string[] }[] = [];
             for (const n of names) {
               const cached = resolved.get(key(n));
@@ -268,7 +280,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
                 resolved.set(key(n), e);
                 const g = byName.get(key(n));
                 if (g) resolvedMap[g.igdb_id] = e.entity_id;
-                out.push({ name: n, entity_id: e.entity_id, tags: e.tags.map((t) => t.name).slice(0, 6) });
+                out.push({ name: n, entity_id: e.entity_id, tags: e.tags.length ? e.tags.map((t) => t.name).slice(0, 6) : undefined });
               } else out.push({ name: n, entity_id: null });
             }
             if (Object.keys(resolvedMap).length) await emit({ type: "resolved", map: resolvedMap });
@@ -299,9 +311,8 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
                   for (const e of items) for (const t of e.tags) tagPool.set(t.id, (tagPool.get(t.id) ?? 0) + (e.affinity ?? 0.5));
                   const scored: qloo.QlooEntity[] = [];
                   for (const g of lib.filter((g) => g.status === "wantToPlay")) {
-                    const e = resolved.get(key(g.name)) ?? (await qloo.resolve(env, g.name, "video_game"));
+                    const e = await hydrate(g.name);
                     if (!e) continue;
-                    resolved.set(key(g.name), e);
                     resolvedMap[g.igdb_id] = e.entity_id;
                     const score = e.tags.reduce((s, t) => s + (tagPool.get(t.id) ?? 0), 0);
                     scored.push({ ...e, affinity: Number(Math.min(0.99, score / Math.max(1, items.length)).toFixed(2)) });
@@ -333,6 +344,7 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             await emit({ type: "status", text: "Reading your taste profile…" });
             const found = await qloo.taste(env, arr<string>(a.seed_ids));
             tasteDone = found.length > 0;
+            lastTaste = found.map((t) => ({ name: t.name, affinity: t.affinity }));
             result = { tags: found.map((t) => ({ name: t.name, affinity: t.affinity })) };
             break;
           }
@@ -360,7 +372,8 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
             for (const p of accepted) {
               const lower = key(p.name);
               const g = byName.get(lower);
-              const e = seen.get(lower) ?? resolved.get(lower);
+              let e = seen.get(lower) ?? resolved.get(lower);
+              if (g && e && !e.tags.length) e = (await hydrate(g.name)) ?? e;
               let meta: igdb.IGDBGameLite | null = null;
               if (!g) meta = await igdb.lookupGame(env, ctx, p.name).catch(() => null);
               cards.push({
@@ -392,7 +405,10 @@ export async function run(env: Env, req: AgentRequest, ctx: ExecutionContext, em
               break;
             }
             const names: string[] = arr<string>(a.tag_names).slice(0, 6);
-            await emit({ type: "taste", summary: String(a.summary ?? ""), tags: names.map((n, i) => ({ name: n, affinity: Number((1 - i * 0.12).toFixed(2)) })) });
+            await emit({ type: "taste", summary: String(a.summary ?? ""), tags: names.map((n, i) => {
+              const real = lastTaste.find((t) => key(t.name) === key(n));
+              return { name: n, affinity: Number((real ? real.affinity : 1 - i * 0.12).toFixed(3)) };
+            }) });
             shown = true;
             result = { ok: true };
             break;

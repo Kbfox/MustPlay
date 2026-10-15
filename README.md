@@ -115,6 +115,13 @@ iPhone (SwiftUI)                         Cloudflare Worker                      
 - What the live API actually returns (URNs, tag types, which filters work for games) is written down in
   [`docs/qloo-api-notes.md`](docs/qloo-api-notes.md).
 
+### Try the agent in a browser
+
+No iPhone needed: **https://kbfox.github.io/mustplay-site/scout.html** is a single static page that talks to
+the same Worker as the app. Build a list (or load a sample), press one of the four prompts, and watch the
+agent's steps stream in; a "Show raw events" toggle reveals the SSE protocol below. Source:
+[Kbfox/mustplay-site](https://github.com/Kbfox/mustplay-site/blob/main/scout.html).
+
 ### Try the agent from a terminal
 
 Same endpoint the app uses. Events stream as server-sent events.
