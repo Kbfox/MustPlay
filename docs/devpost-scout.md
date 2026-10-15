@@ -96,7 +96,7 @@ MustPlay 1.0 (submitted to the App Store on 26 Sept, live 12 Oct) had no Qloo in
 
 ## Testing instructions for judges
 
-0. No iPhone? Open the web demo at https://kbfox.github.io/mustplay-site/scout.html — it runs the same agent with a list you build in the browser.
+0. No iPhone? Open the web demo at https://kbfox.github.io/mustplay-site/scout.html — it runs the same agent with a list you build in the browser (load a sample list, press any of the four prompts, and tick "Show raw events" to see the agent protocol).
 1. Install MustPlay from the App Store on an iPhone (iOS 17+): https://apps.apple.com/app/id6816116027 (free; Scout is in 1.1.0).
 2. Tap **+** and add a few games you have finished; open each, mark **Completed** and rate 4–5 stars. Then add two or three games you mean to play (they stay in "Want to Play"). Two minutes is enough.
 3. Tap **Ask Scout** on the list and try all four prompts. Free text works too: "something like Hollow Knight but shorter".
