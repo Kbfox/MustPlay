@@ -47,6 +47,10 @@ Scout lives inside MustPlay, a shipped iOS gaming bucket-list app (App Store, Oc
 3. **What's my taste?** Qloo taste analysis over your loved games, rendered as a profile card and a shareable 1080×1920 poster with your top covers.
 4. **Post-credits pick.** Finish a game and Scout pairs it with a film and an album via Qloo's cross-domain recommendations. Hades → *Everything Everywhere All at Once* and Kero Kero Bonito. No other API does this.
 
+5. **Why not X?** After a pick, one tap asks why another game in your pile lost. Scout re-ranks the pile and answers with the tags X shares with your taste, the tags Qloo does *not* associate with your loved games, and what the winner has that X lacks.
+
+Signals are weighted: 5★ games count more than 4★, a game you're playing counts a little, and the game you just finished dominates the post-credits pairing. Every card shows **"Closest to: Celeste, Hades"**, taken from Qloo's explainability, so the player sees which of their own games drove the suggestion.
+
 Every reason cites tags returned by Qloo. Scout is free for all users; nothing is gated.
 
 ### How I built it
@@ -54,7 +58,7 @@ Every reason cites tags returned by Qloo. Scout is free for all users; nothing i
 - **iOS (SwiftUI, SwiftData, iOS 17+)**: `ScoutView` chat sheet with four quick prompts and free text, streaming cards over SSE; `TasteShareCard` poster rendered with ImageRenderer; Qloo entity ids cached on the game model so repeat questions skip resolution.
 - **Cloudflare Worker (TypeScript)**: `POST /agent` runs a tool loop. The model (DeepSeek via an OpenAI-compatible API; Workers AI is a one-line fallback) gets five tools and decides the order:
   - `qloo_resolve` → `GET /search?types=urn:entity:videogame` (normalised title match, exact-name first)
-  - `qloo_recommend` → `GET /v2/insights` with `signal.interests.entities`, optional `filter.tags`, `feature.explainability=true`; same-domain and cross-domain (`filter.type=urn:entity:movie|artist|book`)
+  - `qloo_recommend` → `POST /v2/insights` with weighted `signal.interests.entities` (`[{id, weight}]`), `filter.exclude.entities` for the player's own library, optional `filter.tags`, `feature.explainability=true`; same-domain and cross-domain (`filter.type=urn:entity:movie|artist|book`). The Worker sets the weights from ratings; the model never sees them.
   - `qloo_tags` → `GET /v2/tags` plus synthesised game-tag ids (`urn:tag:category:qloo:<slug>`) validated with a one-result insights call, because the tag search endpoint is weak for games
   - `qloo_taste` → `GET /v2/insights?filter.type=urn:tag&filter.parents.types=urn:entity:videogame&filter.tag.types=…`
   - `igdb_lookup` → covers, platforms and IGDB ids for anything Qloo recommends
@@ -81,7 +85,7 @@ A shipped app got a genuinely new capability in two weeks, with Qloo as the diff
 
 ### What's next
 
-Weighted signals (5★ counts more than 4★), a "why not?" follow-up that explains what was ruled out, and Scout-driven push nudges ("Three games in your pile fit your Celeste streak").
+Scout-driven push nudges ("Three games in your pile fit your Celeste streak"), and negative signals (a game you abandoned should push its tags down).
 
 ---
 
