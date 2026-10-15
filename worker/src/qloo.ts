@@ -43,7 +43,11 @@ export interface QlooEntity {
   description?: string;
   image_url?: string;     // Qloo-hosted artwork (games, films, albums)
   platforms?: string[];   // properties.platforms for games
+  /** Explainability: which seed entities drove this result (top 3, scores sum to ~1 across seeds). */
+  because?: { entity_id: string; score: number }[];
 }
+/** A seed with a relative weight for POST /v2/insights (weights must be objects with an `id`). */
+export interface WeightedSeed { id: string; weight: number }
 export interface TasteTag extends QlooTag { affinity: number }
 
 /** Tag types that describe how a game plays and feels; used for taste analysis and constraint lookups. */
@@ -75,6 +79,28 @@ async function get(env: Env, path: string, params: Record<string, string | numbe
   const body = await res.text();
   if (!res.ok) throw new HttpError(502, `qloo ${path} -> ${res.status}`, body.slice(0, 500));
   const data = JSON.parse(body);
+  if (memo.size >= CACHE_MAX) memo.delete(memo.keys().next().value as string);
+  memo.set(cacheKey, { at: Date.now(), data });
+  return data;
+}
+
+/** POST variant for bodies GET can't express (weighted seeds). Same memo, keyed on path + body. */
+async function post(env: Env, path: string, body: Record<string, unknown>): Promise<any> {
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body)) if (v !== undefined && v !== "") clean[k] = v;
+  const json = JSON.stringify(clean);
+  const cacheKey = `POST ${path} ${json}`;
+  const hit = memo.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
+
+  const res = await fetch(new URL(path, env.QLOO_BASE_URL), {
+    method: "POST",
+    headers: { "X-Api-Key": env.QLOO_API_KEY ?? "", Accept: "application/json", "Content-Type": "application/json" },
+    body: json,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new HttpError(502, `qloo POST ${path} -> ${res.status}`, text.slice(0, 500));
+  const data = JSON.parse(text);
   if (memo.size >= CACHE_MAX) memo.delete(memo.keys().next().value as string);
   memo.set(cacheKey, { at: Date.now(), data });
   return data;
@@ -126,6 +152,18 @@ function yearOf(raw: any): number | undefined {
   return Number.isFinite(y) ? y : undefined;
 }
 
+function becauseOf(raw: any): QlooEntity["because"] {
+  const list = raw?.query?.explainability?.["signal.interests.entities"];
+  if (!Array.isArray(list)) return undefined;
+  const out = list
+    .map((x: any) => ({ entity_id: String(x?.entity_id ?? x?.id ?? ""), score: typeof x?.score === "number" ? x.score : NaN }))
+    .filter((x) => x.entity_id && Number.isFinite(x.score))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((x) => ({ entity_id: x.entity_id, score: Number(x.score.toFixed(2)) }));
+  return out.length ? out : undefined;
+}
+
 function normalizeEntity(raw: any, fallback: EntityType): QlooEntity {
   const p = raw?.properties ?? {};
   return {
@@ -139,6 +177,7 @@ function normalizeEntity(raw: any, fallback: EntityType): QlooEntity {
     description: p.description ? String(p.description).slice(0, 240) : undefined,
     image_url: p.image?.url ? String(p.image.url) : undefined,
     platforms: Array.isArray(p.platforms) ? p.platforms.map(String) : undefined,
+    because: becauseOf(raw),
   };
 }
 
@@ -155,7 +194,9 @@ export async function resolve(env: Env, name: string, type: EntityType = "video_
 }
 
 export interface RecommendInput {
-  seedIds: string[];
+  seedIds: string[];      // unweighted fallback (GET)
+  seeds?: WeightedSeed[]; // when given, POST with per-seed weights
+  excludeIds?: string[];  // entity ids never to return (the player's library)
   type: EntityType;
   tagIds?: string[];
   platform?: string;      // free text, matched against properties.platforms ("Switch", "PS5", "PC")
@@ -198,13 +239,29 @@ function platformMatches(entity: QlooEntity, platform?: string): boolean {
 export async function recommend(env: Env, input: RecommendInput): Promise<RecommendResult> {
   if (!hasKey(env)) return { items: fixture.recommend(input), tagMode: input.tagIds?.length ? "filter" : "none" };
 
+  const seeds = (input.seeds ?? []).filter((s) => s && s.id);
+  const exclude = (input.excludeIds ?? []).filter(Boolean);
+  const take = Math.min(50, Math.max(20, (input.take ?? 10) * 3)); // over-fetch: platform/year filtered locally
+  const hasSeeds = seeds.length > 0 || input.seedIds.length > 0;
   const base: Record<string, string | number | undefined> = {
     "filter.type": ENTITY_URN[input.type],
     "signal.interests.entities": input.seedIds.length ? input.seedIds.join(",") : undefined,
+    "filter.exclude.entities": exclude.length ? exclude.join(",") : undefined,
     "feature.explainability": "true",
-    // Over-fetch: platform/year are filtered locally, library titles are removed by the caller.
-    take: Math.min(50, Math.max(20, (input.take ?? 10) * 3)),
+    take,
   };
+  // Weighted seeds go over POST; the GET form can't carry weights.
+  const insights = (extra: Record<string, string>): Promise<any> =>
+    seeds.length
+      ? post(env, "/v2/insights", {
+          "filter.type": ENTITY_URN[input.type],
+          "signal.interests.entities": seeds.map((s) => ({ id: s.id, weight: s.weight })),
+          "filter.exclude.entities": exclude.length ? exclude.join(",") : undefined,
+          "feature.explainability": true,
+          take,
+          ...extra,
+        })
+      : get(env, "/v2/insights", { ...base, ...extra });
   const parse = (data: any): QlooEntity[] =>
     ((data?.results?.entities ?? []) as any[]).map((e) => normalizeEntity(e, input.type)).filter((e) => e.entity_id && e.name);
 
@@ -212,17 +269,17 @@ export async function recommend(env: Env, input: RecommendInput): Promise<Recomm
   let tagMode: RecommendResult["tagMode"] = "none";
   const tagIds = (input.tagIds ?? []).filter(Boolean);
   if (tagIds.length) {
-    items = parse(await get(env, "/v2/insights", { ...base, "filter.tags": tagIds.join(",") }));
+    items = parse(await insights({ "filter.tags": tagIds.join(",") }));
     tagMode = "filter";
     if (!items.length) {
       // Hard filter matched nothing (tag may not apply to this domain): bias instead of filter.
-      items = parse(await get(env, "/v2/insights", { ...base, "signal.interests.tags": tagIds.join(",") }));
+      items = parse(await insights({ "signal.interests.tags": tagIds.join(",") }));
       tagMode = items.length ? "signal" : "dropped";
     }
   }
   if (!items.length) {
-    if (!base["signal.interests.entities"]) return { items: [], tagMode };
-    items = parse(await get(env, "/v2/insights", base));
+    if (!hasSeeds) return { items: [], tagMode };
+    items = parse(await insights({}));
   }
 
   const filtered = items
@@ -263,16 +320,19 @@ export async function tags(env: Env, query: string, take = 6): Promise<QlooTag[]
 }
 
 /** Taste analysis: which game tags characterise the seed set, with affinity. */
-export async function taste(env: Env, seedIds: string[], take = 14): Promise<TasteTag[]> {
+export async function taste(env: Env, seedIds: string[], take = 14, seeds?: WeightedSeed[]): Promise<TasteTag[]> {
   if (!hasKey(env)) return fixture.taste(seedIds);
-  if (!seedIds.length) return [];
-  const data = await get(env, "/v2/insights", {
+  const weighted = (seeds ?? []).filter((s) => s && s.id);
+  if (!seedIds.length && !weighted.length) return [];
+  const common = {
     "filter.type": "urn:tag",
-    "signal.interests.entities": seedIds.join(","),
     "filter.parents.types": ENTITY_URN.video_game,
     "filter.tag.types": GAME_TAG_TYPES.filter((t) => !t.includes(":genre:")).join(","),
     take,
-  });
+  };
+  const data = weighted.length
+    ? await post(env, "/v2/insights", { ...common, "signal.interests.entities": weighted.map((s) => ({ id: s.id, weight: s.weight })) })
+    : await get(env, "/v2/insights", { ...common, "signal.interests.entities": seedIds.join(",") });
   const results: any[] = data?.results?.tags ?? [];
   const seen = new Set<string>();
   return results
