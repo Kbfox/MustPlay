@@ -1,3 +1,25 @@
+# MustPlay 1.1.1 — Scout learns what you don't like
+
+## App Store "What's New" (en-GB)
+
+Scout gets sharper:
+
+• Why not? — after a pick, ask why another game in your pile lost. Scout shows which of its tags match your taste and which ones Qloo doesn't tie to the games you loved.
+• Deep cuts — hidden gems in your lane that you've probably never heard of, badged "Under the radar".
+• Games you rated 1–2 stars now teach Scout what to avoid.
+• Every card says which of your own games it's closest to.
+• 5-star games weigh more than 4-star ones when Scout reads your taste.
+• Post-credits pairings now include series and podcasts.
+• New here? "Tell Scout three games you loved" gets you started in a minute.
+
+Scout stays free for everyone.
+
+## App Review notes (App 审核信息 → 备注)
+
+Version 1.1.1 extends Scout (the optional in-app assistant added in 1.1). Nothing changed in purchases; Scout is still free and needs no account. Same backend and privacy policy as 1.1 (https://kbfox.github.io/mustplay-site/privacy.html, "Scout recommendations"). To test: tap "Ask Scout" on the list → "Tell Scout three games you loved" (search any three games), then try "Pick from my pile", "Deep cuts" and the "Why not …?" chips under a pick. Each answer takes 6–15 seconds.
+
+---
+
 # MustPlay 1.1 — Scout
 
 ## App Store "What's New" (en-GB, ≤4000 chars)
