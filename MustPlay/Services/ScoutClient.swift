@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Wire format (mirrors worker/src/agent.ts)
 
 enum ScoutIntent: String, Codable {
-    case pick, discover, taste, postcredits, chat
+    case pick, discover, taste, postcredits, whynot, chat
 }
 
 struct ScoutRequest: Encodable {
@@ -39,6 +39,8 @@ struct ScoutGameCard: Decodable, Identifiable, Hashable {
     let affinity: Double?
     let tags: [String]
     let image_url: String?
+    /// Loved games this result is closest to (Qloo explainability), strongest first. Absent on older Worker responses.
+    let because: [String]?
 
     var id: String { "\(igdb_id ?? 0)-\(name)" }
     /// IGDB cover when we have one, else Qloo's artwork.

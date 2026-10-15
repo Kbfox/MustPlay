@@ -85,6 +85,8 @@ enum ScoutPrompt: String, CaseIterable, Identifiable {
 final class ScoutSession {
     var transcript: [ScoutItem] = []
     var isRunning = false
+    /// Finished pick answers: id of the turn's last transcript item -> the picked game's IGDB id.
+    private(set) var pickAnswers: [String: Int?] = [:]
     /// Last few user/assistant turns, sent back so free-text follow-ups keep context.
     private var history: [ScoutRequest.Message] = []
     private var task: Task<Void, Never>?
@@ -128,6 +130,7 @@ final class ScoutSession {
         task = Task { @MainActor in
             defer { isRunning = false }
             var replies: [String] = []
+            var pickedID: Int??
             do {
                 for try await event in ScoutClient.stream(request) {
                     switch event {
@@ -135,7 +138,11 @@ final class ScoutSession {
                         replaceTrailingStatus(with: text)
                     case .games(let title, let items):
                         dropTrailingStatus()
-                        if !items.isEmpty { transcript.append(.games(title: title, items: items)) }
+                        if !items.isEmpty {
+                            let item = ScoutItem.games(title: title, items: items)
+                            transcript.append(item)
+                            if intent == .pick { pickedID = .some(items.first?.igdb_id) }
+                        }
                     case .taste(let summary, let tags):
                         dropTrailingStatus()
                         transcript.append(.taste(summary: summary, tags: tags))
@@ -160,6 +167,10 @@ final class ScoutSession {
             } catch {
                 dropTrailingStatus()
                 transcript.append(.error(Self.friendly(error)))
+            }
+            // Anchor follow-ups after the whole answer (card plus closing line), once the stream is done.
+            if let pickedID, let anchor = transcript.last?.id {
+                pickAnswers.updateValue(pickedID, forKey: anchor)
             }
             if !replies.isEmpty {
                 history.append(.init(role: "assistant", content: replies.joined(separator: " ")))
@@ -272,6 +283,9 @@ struct ScoutView: View {
                             ForEach(session.transcript) { item in
                                 row(for: item)
                                     .id(item.id)
+                                if item.id == latestPickAnswerID, let pickedID = session.pickAnswers[item.id] {
+                                    whyNotRow(excluding: pickedID)
+                                }
                             }
                             Color.clear.frame(height: 1).id("bottom")
                         }
@@ -374,12 +388,25 @@ struct ScoutView: View {
         }
     }
 
+    /// "Why not X?" follows a pick, so it needs the same footing: one loved game and one Want game.
+    private var canAskWhyNot: Bool { lovedCount > 0 && wantCount > 0 }
+
+    /// Only the most recent finished pick answer gets the "Why not …?" row.
+    private var latestPickAnswerID: String? {
+        session.transcript.last { session.pickAnswers[$0.id] != nil }?.id
+    }
+
+    /// Other Want-pile games to ask about, in list order.
+    private func whyNotCandidates(excluding pickedID: Int?) -> [BucketGame] {
+        Array(games.filter { $0.status == .wantToPlay && $0.igdbID != pickedID }.prefix(4))
+    }
+
     /// Client-side version of the Worker's guards, so the answer is instant and works offline.
     private func guidance(for intent: ScoutIntent?) -> String? {
         switch intent {
-        case .pick where wantCount == 0:
+        case .pick where wantCount == 0, .whynot where wantCount == 0:
             "Your Want pile is empty. Add a few games you mean to play and I'll rank them against what you loved."
-        case .pick, .taste, .discover:
+        case .pick, .whynot, .taste, .discover:
             lovedCount == 0 ? "I don't know your taste yet. Mark a game as Playing, or rate a finished one 4 stars or more, then ask again." : nil
         case .postcredits where lastCompleted == nil:
             "Finish a game first and I'll pair it with a film or an album."
@@ -457,6 +484,13 @@ struct ScoutView: View {
                 Text(card.name)
                     .font(.headline)
                     .lineLimit(2)
+                if let because = card.because, !because.isEmpty {
+                    Text("Closest to: \(because.joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Text(card.reason)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -562,11 +596,7 @@ struct ScoutView: View {
                             Button {
                                 send(prompt.message, intent: prompt.intent)
                             } label: {
-                                Label(prompt.title, systemImage: prompt.systemImage)
-                                    .font(.caption.weight(.medium))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(Color(.secondarySystemBackground), in: Capsule())
+                                chipLabel(prompt.title, systemImage: prompt.systemImage)
                             }
                             .buttonStyle(.plain)
                             .disabled(session.isRunning || !isAvailable(prompt))
@@ -599,7 +629,38 @@ struct ScoutView: View {
         .background(.bar)
     }
 
-    private func send(_ text: String, intent: ScoutIntent?) {
+    /// The capsule style shared by the prompt chips above the input and the "Why not …?" row.
+    private func chipLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(.secondarySystemBackground), in: Capsule())
+    }
+
+    private func whyNotRow(excluding pickedID: Int?) -> some View {
+        let candidates = whyNotCandidates(excluding: pickedID)
+        return Group {
+            if !candidates.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(candidates) { game in
+                            Button {
+                                send("Why not \(game.name)?", intent: .whynot, focus: game)
+                            } label: {
+                                chipLabel("Why not \(game.name)?", systemImage: "questionmark.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(session.isRunning || !canAskWhyNot)
+                        }
+                    }
+                }
+                .scrollClipDisabled()
+            }
+        }
+    }
+
+    private func send(_ text: String, intent: ScoutIntent?, focus: BucketGame? = nil) {
         draft = ""
         inputFocused = false
         if let guidance = guidance(for: intent) {
@@ -610,7 +671,7 @@ struct ScoutView: View {
         for game in games where game.qlooEntityID?.hasPrefix("fx:") == true {
             game.qlooEntityID = nil
         }
-        session.ask(text, intent: intent, library: games, focus: lastCompleted) { map in
+        session.ask(text, intent: intent, library: games, focus: focus ?? lastCompleted) { map in
             for game in games {
                 if let id = map[game.igdbID], game.qlooEntityID != id {
                     game.qlooEntityID = id
